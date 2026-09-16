@@ -1,0 +1,11 @@
+server
+client
+db
+shared
+dist
+package.json
+package-lock.json
+tsconfig.json
+vite.config.ts
+drizzle.config.ts
+index.html

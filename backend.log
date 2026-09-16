@@ -1,0 +1,24 @@
+[V2] Phase 1 Server OK ΓåÆ http://localhost:3002/api/health
+[V2] tRPC endpoint  ΓåÆ http://localhost:3002/api/trpc
+[V2] Auth routes    ΓåÆ http://localhost:3002/api/auth/google/login
+[V2][tRPC ERROR] auth.devSignin: NOT_FOUND ΓÇö No "query"-procedure on path "auth.devSignin"
+[V2][tRPC ERROR] settings.get: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] settings.getBillingWindow: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] research.status: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[devSignin] DB upsert skipped (DB not available yet): Cannot convert undefined or null to object
+[V2][tRPC ERROR] settings.get: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] settings.getBillingWindow: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] keywords.enrichSerp: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] keywords.aiClusterize: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] research.status: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] research.getPackage: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] research.runPlanForKeyword: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[devSignin] DB upsert skipped (DB not available yet): Cannot convert undefined or null to object
+[V2][tRPC ERROR] settings.get: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] settings.getBillingWindow: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] keywords.enrichSerp: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] keywords.aiClusterize: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] research.status: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] research.getPackage: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] research.runPlanForKeyword: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.
+[V2][tRPC ERROR] settings.save: UNAUTHORIZED ΓÇö Session required ΓÇö use auth.devSignin in dev mode or login via Google.

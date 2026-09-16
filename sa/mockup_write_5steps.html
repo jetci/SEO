@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — เขียนบทความ 6 ขั้น (v2)</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Sarabun','Leelawadee UI','Tahoma',sans-serif;}
+  :root{--brand:#c2410c;--ok:#15803d;--muted:#6b7280;--line:#e5e7eb;}
+  body{background:#f7f8fa;color:#1a1d24;padding:24px;}
+  .wrap{max-width:960px;margin:0 auto;}
+  h1{font-size:22px;margin-bottom:4px;}
+  .sub{color:#6b7280;font-size:13px;margin-bottom:20px;}
+  .stepper{display:flex;align-items:center;margin-bottom:24px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:16px 18px;overflow-x:auto;}
+  .step{display:flex;align-items:center;flex-shrink:0;}
+  .sdot{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;background:#e5e7eb;color:#9ca3af;}
+  .step.active .sdot{background:#c2410c;color:#fff;}
+  .step.done .sdot{background:#15803d;color:#fff;}
+  .slabel{margin:0 8px;font-size:12px;}
+  .slabel b{display:block;}
+  .slabel span{color:#6b7280;font-size:10px;}
+  .step.active .slabel b{color:#c2410c;}
+  .sline{width:28px;height:2px;background:#e5e7eb;margin:0 6px;}
+  .step.done .sline{background:#15803d;}
+  .panel{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:24px;margin-bottom:16px;}
+  .panel h2{font-size:18px;margin-bottom:4px;}
+  .panel h3{font-size:15px;margin:16px 0 8px;}
+  .desc{color:#6b7280;font-size:13px;margin-bottom:18px;}
+  label{font-size:13px;font-weight:600;display:block;margin-bottom:6px;}
+  .hint{font-size:11px;color:#6b7280;margin:-2px 0 14px;}
+  input,select,textarea{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:9px;font-size:14px;margin-bottom:16px;font-family:inherit;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .badge{display:inline-block;font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;}
+  .b-new{background:#fef3c7;color:#b45309;}
+  .b-sam{background:#f3e8ff;color:#7c3aed;}
+  .b-ok{background:#dcfce7;color:#15803d;}
+  .btns{display:flex;justify-content:space-between;margin-top:8px;}
+  .btn{border:1px solid #e5e7eb;background:#fff;padding:10px 18px;border-radius:9px;font-size:14px;cursor:pointer;color:#374151;}
+  .btn.primary{background:#c2410c;color:#fff;border-color:#c2410c;}
+  .btn:disabled{opacity:.4;}
+  .chip{display:inline-block;font-size:11px;padding:4px 10px;border-radius:20px;margin:0 4px 6px 0;}
+  .chip-lt{background:#fef3c7;color:#92400e;}
+  .chip-lsi{background:#eff6ff;color:#2563eb;}
+  .oitem{border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;background:#fafafa;}
+  .oitem .h{font-size:11px;font-weight:700;color:#c2410c;background:#fff1ea;padding:2px 8px;border-radius:6px;}
+  .oitem input{margin:0;border:none;background:none;flex:1;padding:4px;}
+  .src{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;font-size:12.5px;}
+  .wsec{border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;overflow:hidden;}
+  .wsec-head{padding:10px 14px;background:#fafafa;display:flex;justify-content:space-between;font-size:13px;font-weight:600;border-bottom:1px solid #e5e7eb;}
+  .wsec-body{padding:14px;font-size:13px;line-height:1.7;color:#374151;}
+  .wsec.writing .wsec-head{background:#fff1ea;color:#c2410c;}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:11px 14px;font-size:12.5px;color:#92400e;margin-top:14px;}
+  .note.g{background:#dcfce7;border-color:#bbf7d0;color:#15803d;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+  th,td{padding:8px 10px;border:1px solid #e5e7eb;text-align:left;}
+  th{background:#fafafa;}
+  .editor{border:1px solid #e5e7eb;border-radius:10px;min-height:180px;padding:16px;font-size:14px;line-height:1.8;}
+  .editor h4{font-size:15px;margin:12px 0 6px;}
+  .etool{border:1px solid #e5e7eb;background:#fff;padding:6px 10px;border-radius:7px;font-size:12px;cursor:pointer;display:inline-block;margin:0 4px 6px 0;}
+  .metabox{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px;font-size:13px;line-height:1.6;}
+  .savebox{margin-top:16px;padding:14px;background:#f7f8fa;border:1px solid #e5e7eb;border-radius:10px;}
+  .prog{background:#fff;border-radius:8px;height:12px;overflow:hidden;border:1px solid #d1fae5;margin:6px 0;}
+  .prog i{display:block;height:100%;background:#15803d;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>✍️ เขียนบทความ</h1>
+  <div class="sub">Pipeline 6 ขั้น — เขียนเสร็จเก็บเข้าคลัง เพื่อส่งมอบลูกค้า · โปรเจกต์: <b>บ้านบอล</b></div>
+  <div class="stepper" id="stepper"></div>
+  <div id="panels"></div>
+  <div class="btns">
+    <button class="btn" id="back">ย้อนกลับ</button>
+    <button class="btn primary" id="next">ถัดไป</button>
+  </div>
+</div>
+<script>
+var steps=[{n:"1",t:"Input",d:"ข้อมูล+โควตา"},{n:"2",t:"Outline",d:"โครง+Sources"},{n:"3",t:"Write",d:"เขียนทีละ section"},{n:"4",t:"Assemble",d:"รวม+Meta"},{n:"5",t:"Review",d:"ตรวจ+แก้"},{n:"6",t:"Preview",d:"ดู+เก็บคลัง"}];
+var cur=0;
+var KM=[["ราคาบอลไหล","หลัก"]];
+var KL=[["วิธีดูราคาบอลไหล","long-tail"],["ราคาไหล เกิดจากอะไร","long-tail"],["ราคาบอลไหลขึ้นลง","long-tail"]];
+var KS=[["อัตราต่อรอง","LSI"],["ค่าน้ำ","LSI"],["แฮนดิแคป","LSI"]];
+function qrow(k,t,n){return "<tr><td><b>"+k+"</b></td><td style='color:#6b7280;'>"+t+"</td><td style='text-align:center;font-weight:600;'>"+n+" ครั้ง</td></tr>";}
+function calcQuota(w){
+  w=parseInt(w,10);
+  var cap=Math.round(w*0.02);
+  var mq=Math.round(cap*0.45);
+  var lt=Math.round(cap*0.35),le=Math.max(1,Math.floor(lt/KL.length));
+  var ls=Math.round(cap*0.20),se=Math.max(1,Math.floor(ls/KS.length));
+  var r="",s=0,i;
+  for(i=0;i<KM.length;i++){r+=qrow(KM[i][0],KM[i][1],mq);s+=mq;}
+  for(i=0;i<KL.length;i++){r+=qrow(KL[i][0],KL[i][1],le);s+=le;}
+  for(i=0;i<KS.length;i++){r+=qrow(KS[i][0],KS[i][1],se);s+=se;}
+  var a=document.getElementById("wc");if(a)a.innerHTML=w.toLocaleString()+" คำ";
+  var b=document.getElementById("cap");if(b)b.innerHTML=cap;
+  var c=document.getElementById("qbody");if(c)c.innerHTML=r;
+  var d=document.getElementById("qtotal");if(d){d.innerHTML=s;d.style.color=s<=cap?"#15803d":"#dc2626";}
+}
+var P=[];
+P[0]='<div class="panel"><h2>1. ข้อมูลตั้งต้น (Input)</h2><div class="desc">กรอกข้อมูล + กำหนดจำนวนคำ ระบบคำนวณโควตา keyword อัตโนมัติ</div><label>Keyword หลัก *</label><input value="ราคาบอลไหล"><div class="row2"><div><label>หมวดหมู่ *</label><select><option>ฟุตบอล</option><option>คาสิโน (YMYL)</option></select></div><div><label>Search Intent</label><select><option>Informational</option><option>Commercial</option></select></div></div><div class="row2"><div><label>รูปแบบเนื้อหา</label><select><option>ความรู้</option><option>How-to</option></select></div><div><label>AI Model <span class="badge b-sam">Sam</span></label><select><option>Claude (ไทยดี)</option><option>GPT (โทนต่าง)</option></select></div></div><div style="border-top:1px solid #e5e7eb;padding-top:16px;"><label>Keyword จาก Cluster <span class="badge b-ok">ดึงจาก Keyword Cluster</span></label><div class="hint">Long-tail + Related แทรกในบทความอัตโนมัติ</div><div style="font-size:12px;color:#6b7280;margin-bottom:5px;">Long-tail:</div><span class="chip chip-lt">วิธีดูราคาบอลไหล</span><span class="chip chip-lt">ราคาไหล เกิดจากอะไร</span><span class="chip chip-lt">ราคาบอลไหลขึ้นลง</span><div style="font-size:12px;color:#6b7280;margin:8px 0 5px;">Related / LSI:</div><span class="chip chip-lsi">อัตราต่อรอง</span><span class="chip chip-lsi">ค่าน้ำ</span><span class="chip chip-lsi">แฮนดิแคป</span></div><div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:16px;"><label>จำนวนคำเป้าหมาย คำนวณโควตา keyword <span class="badge b-new">แก้ปัญหาเดิม</span></label><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;"><input type="range" min="1000" max="5000" value="3000" id="wcRange" style="flex:1;margin:0;"><span id="wc" style="font-weight:700;font-size:16px;color:#c2410c;min-width:80px;">3,000 คำ</span></div><div class="hint">เพดาน 2% = <b id="cap">60</b> ครั้ง แบ่ง หลัก45 / long-tail35 / LSI20</div><table><thead><tr><th>Keyword</th><th style="width:90px;">ประเภท</th><th style="width:90px;text-align:center;">ใช้กี่ครั้ง</th></tr></thead><tbody id="qbody"></tbody><tfoot><tr style="background:#dcfce7;font-weight:600;"><td colspan="2" style="color:#15803d;">รวม (ไม่เกินเพดาน)</td><td id="qtotal" style="text-align:center;color:#15803d;">60</td></tr></tfoot></table><div class="note">ตัวเลขนี้ส่งเข้า AI ตอนเขียน (AI รู้โควตา จัดวางถูก) + ใช้ตรวจตอนท้าย ลาก slider ดูตัวเลขเปลี่ยน</div></div><div class="note">Brand Voice (Sam): โปรเจกต์ "บ้านบอล" มี brand voice จาก scrape เว็บลูกค้า เขียนตรง voice อัตโนมัติ</div></div>';
+P[1]='<div class="panel"><h2>2. โครงเรื่อง + หา Sources</h2><div class="desc">AI สร้างโครงจากคำถามจริง ดู/แก้ก่อนเขียน + ดึงแหล่งอ้างอิงจริง</div><div class="oitem"><span class="h">H1</span><input value="ราคาบอลไหล คืออะไร? เข้าใจก่อนเดิมพันแม่นขึ้น"></div><div class="oitem"><span class="h">H2</span><input value="ราคาบอลไหล คืออะไร"></div><div class="oitem"><span class="h">H2</span><input value="ราคาบอลไหล เกิดจากอะไร"></div><div class="oitem"><span class="h">H2</span><input value="วิธีอ่านราคาบอลไหล ขึ้น-ลง"></div><button class="btn" style="width:100%;margin-top:6px;">+ เพิ่มหัวข้อ</button><div style="border-top:1px solid #e5e7eb;margin-top:18px;padding-top:16px;"><h3>หา Sources <span class="badge b-sam">Sam</span></h3><div class="desc">ดึงแหล่งอ้างอิงจริงจาก SERP/DataForSEO เป็นเอกสารอ้างอิงท้ายบทความ</div><div class="src"><span style="color:#15803d;">OK</span> <b>sportingnews.com</b> วิธีอ่านอัตราต่อรอง<span style="margin-left:auto;color:#6b7280;">DA 89</span></div><div class="src"><span style="color:#15803d;">OK</span> <b>johnnybet.com</b> ราคาบอลไหล คืออะไร<span style="margin-left:auto;color:#6b7280;">DA 61</span></div><div class="src"><span style="color:#15803d;">OK</span> <b>analysfootballonline.com</b> ราคาไหลเกิดจากอะไร<span style="margin-left:auto;color:#6b7280;">DA 35</span></div><div style="display:flex;gap:8px;margin-top:8px;"><button class="btn" style="flex:1;">ดึงใหม่</button><button class="btn" style="flex:1;">+ เพิ่มแหล่งเอง</button></div><div class="note g">พบ 3 แหล่งน่าเชื่อถือ (DA 35+) แก้ root cause: บทความมี citation จริง E-E-A-T สูง</div></div></div>';
+P[2]='<div class="panel"><h2>3. เขียนทีละ section <span class="badge b-new">โปร่งใส</span></h2><div class="desc">AI เขียนทีละหัวข้อ เห็นสด section ไหนพัง retry แค่อันนั้น</div><div class="wsec"><div class="wsec-head">H2: ราคาบอลไหล คืออะไร <span style="color:#15803d;">เสร็จ</span></div><div class="wsec-body"><b>ราคาบอลไหล</b> คือการเปลี่ยนแปลงของ<b>อัตราต่อรอง</b>ฟุตบอล จาก<b>ราคาเปิด</b>จนถึงก่อนแข่ง...</div></div><div class="wsec writing"><div class="wsec-head">H2: ราคาบอลไหล เกิดจากอะไร <span style="color:#c2410c;">กำลังเขียน...</span></div><div class="wsec-body">สาเหตุที่<b>ราคาไหล เกิดจาก</b>ปริมาณเงินเดิมพันไม่สมดุล ทำให้เจ้ามือปรับ<b>ค่าน้ำ</b>_</div></div><div class="wsec"><div class="wsec-head">H2: วิธีอ่านราคาบอลไหล ขึ้น-ลง <span style="color:#6b7280;">รอคิว</span></div></div><div class="note">retry สูงสุด 2 ครั้ง/section เจอ 402 (เครดิตหมด) หยุดทันที ไม่เผาเครดิต แสดง token ที่ใช้แต่ละ section</div></div>';
+P[3]='<div class="panel"><h2>4. รวม + Meta (Assemble)</h2><div class="desc">รวมทุก section + สร้าง meta อัตโนมัติ</div><div class="prog"><i style="width:100%;"></i></div><div class="src"><span style="color:#15803d;">OK</span> รวม 3 section เป็น 1 บทความ (2,180 คำ)</div><div class="src"><span style="color:#15803d;">OK</span> Meta Title (58 ตัวอักษร)</div><div class="src"><span style="color:#15803d;">OK</span> Meta Description (152 ตัวอักษร)</div><div class="src"><span style="color:#15803d;">OK</span> Clean markdown (ไม่มี # หลุด)</div><div class="metabox" style="margin-top:14px;"><b style="color:#2563eb;">Meta Title:</b> ราคาบอลไหล คืออะไร? วิธีอ่านราคาให้แม่นก่อนเดิมพัน<br><br><b style="color:#2563eb;">Meta Description:</b> เข้าใจราคาบอลไหลตั้งแต่พื้นฐาน สาเหตุที่ราคาขึ้น-ลง วิธีอ่านสัญญาณ อ่านจบใน 5 นาที</div></div>';
+P[4]='<div class="panel"><h2>5. ตรวจ / แก้ <span class="badge b-new">inline editor</span></h2><div class="desc">อ่าน+แก้ในหน้าเลย keyword ตัวหนาอัตโนมัติ ตรวจง่าย</div><div style="margin-bottom:10px;"><span class="etool"><b>B</b></span><span class="etool"><i>I</i></span><span class="etool">H2</span><span class="etool">List</span><span class="etool">Link</span><span class="etool">ให้ AI เขียนย่อหน้านี้ใหม่</span></div><div class="editor" contenteditable="true"><h4>ราคาบอลไหล คืออะไร</h4><p><b>ราคาบอลไหล</b> คือการเปลี่ยนแปลงของ<b>อัตราต่อรอง</b>ฟุตบอล จาก<b>ราคาเปิด</b>จนถึงก่อนแข่ง</p><h4>ราคาบอลไหล เกิดจากอะไร</h4><p>สาเหตุที่<b>ราคาไหล เกิดจาก</b>ปริมาณเงินเดิมพันไม่สมดุล ทำให้ปรับ<b>ค่าน้ำ</b></p></div><h3>Keyword Density (เพดาน ไม่เกิน 2%)</h3><div class="note g" style="margin-top:0;"><div style="display:flex;justify-content:space-between;"><span>2,180 คำ เพดาน 2% = 43 ครั้ง</span><span><b>ใช้จริง 37 ครั้ง (1.7%)</b></span></div><div class="prog" style="margin:8px 0 0;"><i style="width:86%;"></i></div></div><table style="margin-top:10px;"><tr><td><span style="color:#15803d;">OK</span> <b>ราคาบอลไหล</b> <span style="color:#6b7280;font-size:11px;">(หลัก)</span></td><td style="text-align:right;color:#6b7280;">12 ครั้ง</td></tr><tr><td><span style="color:#15803d;">OK</span> <b>วิธีดูราคาบอลไหล</b> <span style="color:#6b7280;font-size:11px;">(long-tail)</span></td><td style="text-align:right;color:#6b7280;">4 ครั้ง</td></tr><tr><td><span style="color:#15803d;">OK</span> <b>อัตราต่อรอง</b> <span style="color:#6b7280;font-size:11px;">(LSI)</span></td><td style="text-align:right;color:#6b7280;">9 ครั้ง</td></tr></table><div class="note">keyword ทุกตัว (หลัก+รอง+LSI) รวม ไม่เกิน 2% เพดานกันยัด ไม่ใช่เป้าที่ต้องถึง</div></div>';
+P[5]='<div class="panel"><h2>6. ดูตัวอย่างก่อนบันทึก (Preview)</h2><div class="desc">ดูหน้าตาจริง ตรวจการจัดวาง H1/H2/ย่อหน้า/อ้างอิง ก่อนเก็บคลัง</div><div class="metabox"><div style="font-size:11px;color:#6b7280;margin-bottom:4px;">SEO Preview หน้าตาบน Google</div><div style="color:#1a0dab;font-size:17px;">ราคาบอลไหล คืออะไร? วิธีอ่านราคาให้แม่นก่อนเดิมพัน</div><div style="color:#006621;font-size:12px;">example-client.com › บทความ › ราคาบอลไหล</div><div style="color:#4d5156;font-size:12px;">เข้าใจราคาบอลไหลตั้งแต่พื้นฐาน สาเหตุที่ราคาขึ้น-ลง วิธีอ่านสัญญาณ อ่านจบใน 5 นาที</div></div><div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-top:14px;"><div style="background:#fafafa;padding:8px 14px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;">2,180 คำ density 1.7% OK อ้างอิง 3 แหล่ง อ่าน 8 นาที</div><div style="padding:20px;max-height:300px;overflow:auto;"><h3 style="font-size:22px;margin-bottom:12px;">ราคาบอลไหล คืออะไร? เข้าใจก่อนเดิมพันแม่นขึ้น</h3><h4 style="font-size:17px;margin:14px 0 6px;">ราคาบอลไหล คืออะไร</h4><p style="line-height:1.8;color:#374151;margin-bottom:10px;"><b>ราคาบอลไหล</b> คือการเปลี่ยนแปลงของ<b>อัตราต่อรอง</b>ฟุตบอล จาก<b>ราคาเปิด</b>จนถึงก่อนแข่ง</p><h4 style="font-size:17px;margin:14px 0 6px;">ราคาบอลไหล เกิดจากอะไร</h4><p style="line-height:1.8;color:#374151;margin-bottom:10px;">สาเหตุที่<b>ราคาไหล เกิดจาก</b>ปริมาณเงินเดิมพันไม่สมดุล...</p><h4 style="font-size:14px;margin:14px 0 6px;border-top:1px solid #e5e7eb;padding-top:12px;">เอกสารอ้างอิง</h4><ol style="font-size:12px;color:#4b5563;line-height:1.8;padding-left:18px;"><li>Sporting News วิธีอ่านอัตราต่อรองฟุตบอล</li><li>JohnnyBet ราคาบอลไหล คืออะไร</li><li>Analys Football ราคาไหลเกิดจากอะไร</li></ol></div></div><div class="savebox"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"><span style="font-size:13px;font-weight:600;">สถานะ:</span><select style="width:auto;margin:0;padding:6px 12px;"><option>ร่าง</option><option>เสร็จ (พร้อมใช้)</option></select><span style="font-size:11px;color:#6b7280;">บันทึกเข้าคลัง เพื่อส่งมอบลูกค้า</span></div><div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn primary">บันทึกเข้าคลัง</button><button class="btn">ส่งออก Markdown</button><button class="btn">ส่งออก HTML</button><button class="btn">ส่งออก Word</button></div><div class="note" style="margin-bottom:0;">เขียนเสร็จ ดูตัวอย่าง เก็บคลัง ส่งออกให้ลูกค้า (หลาย format พร้อมอ้างอิง+meta)</div></div></div>';
+function renderStepper(){
+  var el=document.getElementById("stepper"),h="",i;
+  for(i=0;i<steps.length;i++){
+    var cls="step"+(i===cur?" active":"")+(i<cur?" done":"");
+    h+='<div class="'+cls+'"><div class="sdot">'+(i<cur?"OK":steps[i].n)+'</div><div class="slabel"><b>'+steps[i].t+'</b><span>'+steps[i].d+'</span></div>';
+    if(i<steps.length-1)h+='<div class="sline"></div>';
+    h+="</div>";
+  }
+  el.innerHTML=h;
+}
+function renderPanel(){
+  document.getElementById("panels").innerHTML=P[cur];
+  document.getElementById("back").disabled=(cur===0);
+  document.getElementById("next").style.display=(cur===steps.length-1)?"none":"block";
+  if(cur===0){calcQuota(3000);var r=document.getElementById("wcRange");if(r)r.oninput=function(){calcQuota(this.value);};}
+}
+document.getElementById("next").onclick=function(){if(cur<steps.length-1){cur++;renderStepper();renderPanel();}};
+document.getElementById("back").onclick=function(){if(cur>0){cur--;renderStepper();renderPanel();}};
+renderStepper();renderPanel();
+</script>
+</body>
+</html>

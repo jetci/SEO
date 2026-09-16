@@ -1,0 +1,8 @@
+node_modules
+.vercel-tmp
+.env
+dist
+build
+.next
+.DS_Store
+.trae
