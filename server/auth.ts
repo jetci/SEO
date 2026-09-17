@@ -88,33 +88,11 @@ export const authRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // DEBUG V16: Dump raw ctx.req.body to see tRPC batch layer parsed password correctly?
-      try {
-        const rawBody = JSON.stringify((ctx as any)?.req?.body ?? null, null, 0);
-        console.warn('[AUTH_DEBUG_V16 RAW BODY] len=', rawBody.length, ' substr800=', rawBody.slice(0, 800));
-      } catch(e) { console.warn('[AUTH_DEBUG_V16 RAW BODY FAIL]', e instanceof Error ? e.message : String(e)); }
-      console.warn('[AUTH_DEBUG_V16] IS_PROD=', IS_PROD, 'NODE_ENV=', process.env.NODE_ENV);
-      console.warn('[AUTH_DEBUG_V16] input JSON stringify len=', JSON.stringify(input).length, ' substr=', JSON.stringify(input).slice(0, 500));
-      console.warn('[AUTH_DEBUG_V16] typeof input.password =', typeof input.password, ' truthy=', !!input.password);
       const prodDemoAllowed = String(process.env.ALLOW_PROD_DEMO_SIGNIN || '0') === '1';
-      console.warn('[AUTH_DEBUG_V16] prodDemoAllowed:', prodDemoAllowed, 'ALLOW_raw:', JSON.stringify(process.env.ALLOW_PROD_DEMO_SIGNIN || ''));
-      console.warn('[AUTH_DEBUG_V16] inputPWD len=', String(input?.password || '').length,
-        ' FIRST8=', [...String(input?.password || '').slice(0, 8)].map(c => c.charCodeAt(0)).join(','),
-        ' LAST6=', [...String(input?.password || '').slice(-6)].map(c => c.charCodeAt(0)).join(','));
-      console.warn('[AUTH_DEBUG_V16] inputPWD string=|' + String(input?.password || '') + '|');
       const prodDemoPwd = String(process.env.PROD_DEMO_SIGNIN_PASSWORD || '').trim();
-      console.warn('[AUTH_DEBUG_V16] envPWD   len=', String(prodDemoPwd || '').length,
-        ' FIRST8=', [...String(prodDemoPwd || '').slice(0, 8)].map(c => c.charCodeAt(0)).join(','),
-        ' LAST6=', [...String(prodDemoPwd || '').slice(-6)].map(c => c.charCodeAt(0)).join(','));
-      console.warn('[AUTH_DEBUG_V16] envPWD   string=|' + String(prodDemoPwd || '') + '|');
       const isAdminOpenId = String(input.openId || '').trim() === String(ENV.ADMIN_OPENID || '').trim();
-      console.warn('[AUTH_DEBUG_V16] ENV.ADMIN_OPENID len=', String(ENV.ADMIN_OPENID || '').length, ' =', String(ENV.ADMIN_OPENID || '').slice(0, 32));
-      console.warn('[AUTH_DEBUG_V16] isAdminOpenId:', isAdminOpenId);
       const pwdMatch = prodDemoPwd ? (String(input.password || '').trim() === prodDemoPwd) : false;
-      console.warn('[AUTH_DEBUG_V16] pwdMatch:', pwdMatch);
-      console.warn('[AUTH_DEBUG_V16] FINAL TRIPLE (prodDemoAllowed, isAdminOpenId, pwdMatch):', prodDemoAllowed, isAdminOpenId, pwdMatch, 'IS_PROD=', IS_PROD);
-      const isTestUser = input.password === 'test1234';
-      if (IS_PROD && !isTestUser && !(prodDemoAllowed && isAdminOpenId && pwdMatch)) {
+      if (IS_PROD && !(prodDemoAllowed && isAdminOpenId && pwdMatch)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'devSignin is disabled in production.',

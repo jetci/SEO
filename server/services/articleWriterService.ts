@@ -157,7 +157,7 @@ export type RewriteSectionParams = {
 
 export class ArticleWriterService {
   static async rewriteSection(
-    ctx: ProtectedCtx,
+    ctx: any,
     params: RewriteSectionParams
   ) {
     const llm = await LlmService.forContext(ctx);
@@ -224,7 +224,7 @@ export class ArticleWriterService {
   }
 
   static async writeDraft(
-    ctx: ProtectedCtx,
+    ctx: any,
     pkg: ResearchPackageLite,
     clusterTopic: string | null,
     ymyl: boolean,
@@ -320,6 +320,7 @@ export class ArticleWriterService {
     const sections: z.infer<typeof draftSchema.shape.sections> = [];
     let bodyWordTotal = 0;
     let citationsCount = 0;
+    let sectionPlaceholderCount = 0;
     for (let i = 0; i < outline.sections.length; i++) {
       const s = outline.sections[i];
       if (s.heading_level === 1) continue; // H1 as title handled separate
@@ -352,7 +353,7 @@ export class ArticleWriterService {
         ? Math.max(900, Math.round(charFloorFromWords * 0.85))
         : Math.max(480, Math.round(charFloorFromWords * 0.7));
       const MAX_ATTEMPTS = 5;
-      const BACKOFFS = [0, 300, 900, 2000, 3500];
+      const jitter = (baseMs: number): number => Math.max(200, Math.round(baseMs * (0.7 + Math.random() * 0.6)));
       let body = '';
       let lastErr: any = null;
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -372,34 +373,45 @@ export class ArticleWriterService {
           if (body.trim().length >= MIN_BODY_CHARS) break;
           lastErr = new Error(`attempt ${attempt + 1}/${MAX_ATTEMPTS} [model=${String(useModel||'?').slice(0,16)} T=${temp.toFixed(2)}] too-short (${body.trim().length}/${MIN_BODY_CHARS}) — retrying…`);
         } catch (err: any) {
-          lastErr = new Error(`attempt ${attempt + 1}/${MAX_ATTEMPTS} LLM API failed: ${String(err?.message ?? err)}`);
+          const msg = String(err?.message ?? err);
+          lastErr = new Error(`attempt ${attempt + 1}/${MAX_ATTEMPTS} LLM API failed: ${msg}`);
+          const isAuth = msg.startsWith('[LLM_AUTH_INVALID_');
+          const isCredit = msg.startsWith('[LLM_CREDIT_EXHAUSTED_');
+          // CT-01 Fast fail — auth/credit wrong → all future attempts will also fail. Don't waste MAX_ATTEMPTS.
+          if (isAuth || isCredit) break;
         }
         if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(res => setTimeout(res, BACKOFFS[attempt + 1] || 500));
+          const baseBackoff = attempt === 0 ? 2000 : attempt === 1 ? 5000 : attempt === 2 ? 15000 : 30000;
+          const isRate = String(lastErr?.message || '').startsWith('[LLM_RATE_LIMIT_');
+          const base = isRate ? baseBackoff * 2 : baseBackoff;
+          await new Promise(res => setTimeout(res, jitter(base)));
         }
       }
+      let sectionIsPlaceholder = false;
       if (body.trim().length < MIN_BODY_CHARS) {
+        sectionIsPlaceholder = true;
+        sectionPlaceholderCount++;
         const keyPointsJoined = (s.key_points ?? []).filter(Boolean).map(String).join(' — ');
         const overviewSnippet = pkg.ai_overview?.slice(0, 1800) || '';
         const placeholders: string[] = [];
         placeholders.push(`> **[AUTO PLACEHOLDER — LLM transient limit hit 5/5 attempts]** หัวข้อ: **${s.heading_text}** — โปรดแก้ไขด้วยมือ หรือกด Generate อีกครั้งหลังจากไม่กี่วินาที\n`);
         if (overviewSnippet?.length > 120) {
-          placeholders.push(`### ข้อมูลพื้นฐานจากการวิจัย\n${overviewSnippet}\n\nข้อมูลดังกล่าวสะท้อนประเด็นสำคัญที่ผู้ใช้จริงมองหาเมื่อค้นหาเกี่ยวกับ **${pkg.keyword_text}** ทำให้สามารถอ้างอิงจุดเน้นหลักในการเขียนบทความส่วนนี้ได้ทันที\n`);
+          placeholders.push(`✦ ข้อมูลพื้นฐานจากการวิจัย ✦\n${overviewSnippet}\n\nข้อมูลดังกล่าวสะท้อนประเด็นสำคัญที่ผู้ใช้จริงมองหาเมื่อค้นหาเกี่ยวกับ **${pkg.keyword_text}** ทำให้สามารถอ้างอิงจุดเน้นหลักในการเขียนบทความส่วนนี้ได้ทันที\n`);
         }
         if (keyPointsJoined.length > 40) {
-          placeholders.push(`### จุดเน้นหลักที่ต้องครอบคลุม\n${keyPointsJoined}\n\nแต่ละจุดควรถูกขยายเป็นย่อหน้าเต็มๆ พร้อมตัวอย่างที่เป็นรูปธรรมและคำอธิบายเชิงลึกที่อ่านง่าย ไม่ใช่แค่หัวข้อย่อยแบบรายการ\n`);
+          placeholders.push(`✦ จุดเน้นหลักที่ต้องครอบคลุม ✦\n${keyPointsJoined}\n\nแต่ละจุดควรถูกขยายเป็นย่อหน้าเต็มๆ พร้อมตัวอย่างที่เป็นรูปธรรมและคำอธิบายเชิงลึกที่อ่านง่าย ไม่ใช่แค่หัวข้อย่อยแบบรายการ\n`);
         }
-        placeholders.push(`### คำแนะนำเชิงปฏิบัติ\nเมื่อเขียนส่วนนี้ เน้นคำตอบที่ตรงประเด็น ใช้ภาษาที่สนทนาเป็นธรรมชาติ แยกย่อหน้าสั้นๆ ประมาณ 3-6 ประโยค ตามด้วยข้อคิดสรุปที่ผู้อ่านสามารถนำไปใช้ได้ทันที\n`);
+        placeholders.push(`✦ คำแนะนำเชิงปฏิบัติ ✦\nเมื่อเขียนส่วนนี้ เน้นคำตอบที่ตรงประเด็น ใช้ภาษาที่สนทนาเป็นธรรมชาติ แยกย่อหน้าสั้นๆ ประมาณ 3-6 ประโยค ตามด้วยข้อคิดสรุปที่ผู้อ่านสามารถนำไปใช้ได้ทันที\n`);
         body = placeholders.join('\n\n');
         const msg = lastErr?.message || String(lastErr || 'UNKNOWN');
         console.warn(`[articleWriterService:writeDraft:${pkg.keyword_text?.slice(0,60)}] Section LLM ${MAX_ATTEMPTS} exhausted → FALLBACK PLACEHOLDER generated heading="${s.heading_text?.slice(0,100)}" H${s.heading_level} (placeholderChars=${body.trim().length} ≥ required=${MIN_BODY_CHARS}). Last raw LLM: ${msg.slice(0,200)}`);
       }
 
-const wcBody = wordCount(body);
+      const wcBody = wordCount(body);
       bodyWordTotal += wcBody;
       const embedded = citeSub.map((c, idx) => ({ index: citationsCount + idx, fact: String(c.fact ?? '').slice(0, 800), source_url: String(c.source_url ?? '').slice(0, 512) }));
       citationsCount += embedded.length;
-      sections.push({ heading: s, body_markdown: body, citations_embedded: embedded });
+      sections.push({ heading: s, body_markdown: body, citations_embedded: embedded, is_placeholder: sectionIsPlaceholder } as any);
     }
 
     // 🟢 AUDIT P2 YMYL L10n: Resolve team default language setting (best-effort, ignore errors)
@@ -443,13 +455,9 @@ const wcBody = wordCount(body);
         .filter((c: any) => c.source_url.length >= 8);
     }
     if (uniqueRefsForSection.length === 0) {
-      uniqueRefsForSection = [
-        { index: 0, fact: `ข้อมูลเบื้องต้นเกี่ยวกับ ${pkg.keyword_text} จากฐานข้อมูลการวิจัยภายในระบบ (แหล่งอ้างอิงทั่วไป)`, source_url: 'https://www.wikipedia.org/wiki/Thailand' },
-        { index: 1, fact: `ข้อมูลสถิติและแนวโน้มการค้นหาเกี่ยวกับ ${pkg.keyword_text} จาก SERP Google ปี 2569`, source_url: 'https://trends.google.com/trends/' },
-        { index: 2, fact: `แนวทางปฏิบัติยอดนิยมเกี่ยวกับ ${pkg.keyword_text} จากแหล่งข้อมูลเผยแพร่สาธารณะทางการ`, source_url: 'https://developers.google.com/search/docs/fundamentals/seo-starter-guide' },
-      ];
+      uniqueRefsForSection = [];
     }
-    {
+    if (uniqueRefsForSection.length > 0) {
       let refBodyMd = '';
       refBodyMd += `ข้อมูลในเนื้อหาด้านบนทั้งหมด ได้รับการยืนยันและตรวจสอบความถูกต้องอ้างอิงจากแหล่งข้อมูลทางการ, แหล่งข้อมูลเผยแพร่สาธารณะ, และผลการวิจัยเชิงประจักษ์ที่เชื่อถือได้ ดังนี้ (เรียงลำดับตามลำดับการอ้างอิงในเนื้อหา)\n\n`;
       uniqueRefsForSection.forEach((c, i) => {
@@ -503,6 +511,8 @@ const wcBody = wordCount(body);
 
     const outlineOut = { sections: outline.sections.filter(s => s.heading_level !== 1).map(s => ({ ...s, heading_text: s.heading_level === 2 ? s.heading_text : s.heading_text })) };
 
+    const hasPlaceholder = sectionPlaceholderCount > 0;
+    const stepStatusOverride = hasPlaceholder ? 'fail' : 'done';
     return {
       draft,
       outline: outlineOut,
@@ -512,6 +522,9 @@ const wcBody = wordCount(body);
       disclaimer_added: disclaimerInjected,
       ymyl_required: ymylRequired,
       eeat_score_est: Math.min(100, 50 + (disclaimerInjected && ymylRequired ? 15 : 0) + (citationsCount >= 3 ? 15 : 0) + (totalWordCount >= 1500 ? 20 : Math.floor((totalWordCount / 1500) * 20))),
+      placeholder_section_count: sectionPlaceholderCount,
+      has_placeholder: hasPlaceholder,
+      step_status_override: stepStatusOverride,
     };
   }
 }

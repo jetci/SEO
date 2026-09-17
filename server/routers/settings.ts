@@ -80,7 +80,7 @@ function newTraceId(): string {
  *  - Admin user → return their default team (any owner/admin team).
  *  - Writer → must act on explicit team via context (userTeamIds).
  */
-export async function resolveTeamIdForSettings(ctx: ProtectedCtx): Promise<number> {
+export async function resolveTeamIdForSettings(ctx: any): Promise<number> {
   const openId = ctx.session.openId;
   const [userRow] = await db.select({ id: users.id }).from(users).where(eq(users.googleOpenId, openId)).limit(1);
   if (!userRow) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found.' });
@@ -236,7 +236,7 @@ export type TeamSettingsResolved = {
   langCode: string;
 };
 
-export async function resolveTeamSettings(ctx: ProtectedCtx): Promise<TeamSettingsResolved> {
+export async function resolveTeamSettings(ctx: any): Promise<TeamSettingsResolved> {
   const teamId = await resolveTeamIdForSettings(ctx);
   const map = await loadSettingsForTeam(teamId);
   const dec = (k: string, fallback='') => {

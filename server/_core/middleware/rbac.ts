@@ -1,12 +1,10 @@
 // EEAT Studio V2 · RBAC Middleware (SA §4.1 users roles admin/writer ONLY — viewer REMOVED!)
-// 0.4b Transplant:
-//   a) protectedProcedure — ctx.session !== null (UNAUTHORIZED otherwise)
-//   b) adminProcedure      — protectedProcedure + role === admin (FORBIDDEN otherwise)
-// Phase 0 (no DB yet): role resolved via ctx.user.role OR fallback openId === ADMIN_OPENID → admin.
-// Phase 1+ (DB conn alive): role resolved via users.role column from drizzle (ctx.user pre-hydrated).
 import { ENV, IS_DEV } from '../env.js';
 import { publicProcedure, middleware, TRPCError } from '../trpc.js';
 import type { UserRole } from '../../../shared/types.js';
+import { db } from '../../../db/index.js';
+import { users } from '../../../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 /**
  * Resolve effective role — works for both Phase 0 (no DB) and Phase 1+ (DB hydrated).
@@ -75,9 +73,39 @@ export const isAdmin = middleware(async ({ ctx, next }) => {
   });
 });
 
+// ── MIDDLEWARE 3: hydrateUser ────────────────────────────────────
+// Requires: isAuthenticated has run (ctx.session.openId exists)
+// Action: Query DB users table by googleOpenId → attach ctx.user
+// Guarantees: ctx.user is User object (from DB) OR null (if user row not yet created)
+export const hydrateUser = middleware(async ({ ctx, next }) => {
+  const openId = ctx.session?.openId;
+  if (!openId) {
+    return next({ ctx });
+  }
+  try {
+    const rows = await db.select().from(users).where(eq(users.googleOpenId, openId)).limit(1);
+    if (rows && rows.length > 0) {
+      const u = rows[0] as any;
+      // Normalize isActive: DB tinyint(1) → boolean for ctx
+      return next({
+        ctx: {
+          ...ctx,
+          user: { ...u, isActive: !!u.isActive } as any,
+        },
+      });
+    }
+  } catch (e) {
+    // DB down or schema error: do NOT throw — fall back to ctx.user = null; resolveRole handles it
+    if (IS_DEV) {
+      console.warn('[hydrateUser] DB query skipped:', e instanceof Error ? e.message : String(e).slice(0, 100));
+    }
+  }
+  return next({ ctx });
+});
+
 // ── EXPORTABLE PROCEDURES (use in all routers: teams/settings/projects etc.) ──
-export const protectedProcedure = publicProcedure.use(isAuthenticated);
-export const adminProcedure = publicProcedure.use(isAuthenticated).use(isAdmin);
+export const protectedProcedure = publicProcedure.use(isAuthenticated).use(hydrateUser);
+export const adminProcedure = protectedProcedure.use(isAdmin);
 
 // ── Type helpers for downstream routers ──────────────────────────
 export type ProtectedCtx = {

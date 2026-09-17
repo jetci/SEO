@@ -89,7 +89,7 @@ export class SerpService {
     this.settings = s;
     this.ctx = ctx;
   }
-  static async forContext(ctx: ProtectedCtx) {
+  static async forContext(ctx: any) {
     const s = await resolveTeamSettings(ctx);
     return new SerpService(s, ctx);
   }

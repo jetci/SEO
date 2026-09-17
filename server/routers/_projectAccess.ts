@@ -24,7 +24,7 @@ export interface ProjectAccess {
  * Throws TRPCError(FORBIDDEN) if not a member or role below minRole.
  */
 export async function assertProjectAccess(
-  ctx: ProtectedCtx,
+  ctx: any,
   projectId: number,
   opts: { minRole: TeamPermission },
   _TRPC: typeof TRPCError
@@ -66,7 +66,7 @@ export async function assertProjectAccess(
 
 /** Like assertProjectAccess, but takes teamId directly (for create/list). */
 export async function assertTeamAccess(
-  ctx: ProtectedCtx,
+  ctx: any,
   teamId: number,
   opts: { minRole: TeamPermission },
   _TRPC: typeof TRPCError
@@ -93,7 +93,7 @@ export async function assertTeamAccess(
 }
 
 /** Returns teamIds that the current user is a member of (for list filtering). */
-export async function userTeamIds(ctx: ProtectedCtx): Promise<number[]> {
+export async function userTeamIds(ctx: any): Promise<number[]> {
   const openId = ctx.session.openId;
   const [userRow] = await db
     .select({ id: users.id })

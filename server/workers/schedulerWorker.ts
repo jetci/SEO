@@ -3,7 +3,7 @@ import { eq, and, isNotNull } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { articles, writeArticles } from '../../db/schema.js';
 import { appRouter } from '../app.js';
-import { VERCEL } from '../_core/env.js';
+import { VERCEL, ENV } from '../_core/env.js';
 
 const SYSTEM_ADMIN_ID = 99001;
 const SYSTEM_TEAM_ID = 90001;
@@ -70,11 +70,14 @@ async function scheduledPublishTick() {
 
     console.log(`[SCHED CRON] Found ${eligible.length} scheduled articles due at ${now.toISOString()}`);
 
+    // SCHED-01 FIX: system session.openId = ENV.ADMIN_OPENID so isAuthenticated + hydrateUser middleware pass
+    // protectedProcedure -> isAuthenticated checks ctx.session.openId (NOT ctx.user!) -> hydrateUser DB lookup googleOpenId
+    const systemOpenId = String(ENV.ADMIN_OPENID || 'intelman26@gmail.com').trim();
     const caller = (appRouter as any).createCaller({
       user: { id: SYSTEM_ADMIN_ID, role: 'admin', teamId: SYSTEM_TEAM_ID, email: 'scheduler@eeat.local' },
       req: undefined,
       res: undefined,
-      session: undefined,
+      session: { openId: systemOpenId, teamId: SYSTEM_TEAM_ID, issuedAt: Date.now() },
     });
 
     for (const item of eligible) {

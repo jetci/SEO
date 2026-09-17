@@ -1,0 +1,468 @@
+{
+  "meta": {
+    "title": "EEAT Studio V2 — Deep Audit Report",
+    "repo": "github.com/jetci/SEO",
+    "stack": "React + Vite + tRPC v10 + Drizzle ORM (MySQL) + Express 5, deploy Vercel",
+    "summary": "กลไก RBAC ทั้งระบบไม่ทำงานตามออกแบบ เพราะ ctx.user ไม่เคยถูก hydrate การตรวจสิทธิ์ admin จึงตกไปพึ่ง session.openId === ADMIN_OPENID (hardcode ค่าเดียว) ทำให้มี system-admin ได้คนเดียว ยังพบ backdoor login ใน production, scheduler auto-publish ที่พังทุกครั้ง, และ dev mock ที่อาจรั่วสู่ production. หมายเหตุ: handoff report เดิมอ้าง 298/298 pass / เสร็จ 100% แต่บั๊ก RBAC ระดับวิกฤตชี้ว่าเทสน่าจะ mock ctx.user ไว้",
+    "counts": {
+      "critical": 6,
+      "high": 7,
+      "medium": 6,
+      "low": 4
+    }
+  },
+  "plan": {
+    "ลำดับ 1 (ก่อน deploy — ความปลอดภัย/ฟีเจอร์หลัก)": [
+      "ADMIN-01",
+      "RBAC-01",
+      "RBAC-02",
+      "SCHED-01",
+      "WRITER-01",
+      "DEBT-02"
+    ],
+    "ลำดับ 2 (เร่งด่วน — ความถูกต้องข้อมูล)": [
+      "WRITER-02",
+      "WRITER-03",
+      "DB-02",
+      "RBAC-03",
+      "ADMIN-02",
+      "SCHED-02",
+      "GUEST-01"
+    ],
+    "ลำดับ 3 (สปรินต์ถัดไป — UX/ความสอดคล้อง)": [
+      "ADMIN-03",
+      "ADMIN-04",
+      "DB-01",
+      "DB-03",
+      "API-02",
+      "UX-01",
+      "UX-02",
+      "WRITER-04",
+      "GUEST-02",
+      "DEBT-01"
+    ],
+    "ลำดับ 4 (ปรับปรุงคุณภาพ)": [
+      "API-01",
+      "API-03",
+      "UX-03",
+      "DEBT-03"
+    ]
+  },
+  "roles": [
+    {
+      "role": "RBAC Core (กระทบทุกบทบาท)",
+      "findings": [
+        {
+          "id": "RBAC-01",
+          "title": "ctx.user ไม่เคยถูก hydrate → RBAC ทั้งระบบพังเงียบ",
+          "severity": "critical",
+          "location": "server/_core/trpc.ts (L77 user:null); server/_core/middleware/rbac.ts (resolveRole)",
+          "problem": [
+            "createContext() กำหนด user:null เสมอ คอมเมนต์ว่า 'hydrated later in 0.4b RBAC' แต่ไม่มีโค้ดที่ไหน hydrate เลย (grep 'ctx.user =' ไม่พบ)",
+            "resolveRole() ข้าม branch ctx.user.role เสมอ ตกไปที่ session.openId === ADMIN_OPENID เท่านั้น",
+            "ผู้ใช้ role='admin' ใน DB แต่ openId ไม่ตรง ADMIN_OPENID จะถูกปฏิบัติเป็น writer เสมอ"
+          ],
+          "fix": [
+            "เพิ่ม middleware hydrateUser ต่อจาก isAuthenticated: query users ด้วย ctx.session.openId แล้ว attach เป็น ctx.user",
+            "protectedProcedure = publicProcedure.use(isAuthenticated).use(hydrateUser)",
+            "เพิ่ม integration test ที่ไม่ mock ctx.user เพื่อพิสูจน์ว่า role จาก DB ถูกใช้จริง"
+          ]
+        },
+        {
+          "id": "RBAC-02",
+          "title": "admin router import adminProcedure แต่ไม่ได้ใช้ — ใช้ inline check ที่ผิด",
+          "severity": "critical",
+          "location": "server/routers/admin.ts (L75-L203)",
+          "problem": [
+            "ทุก procedure ใน admin.ts ใช้ protectedProcedure ไม่ใช่ adminProcedure",
+            "กันสิทธิ์แบบ inline: if(ctx.user?.role!=='admin') throw UNAUTHORIZED แต่ ctx.user เป็น null เสมอ → เงื่อนไขจริงเสมอ → admin จริงก็โดน block",
+            "โค้ด dead L76-78 คอมเมนต์สับสน ('No, we wrap inline')"
+          ],
+          "fix": [
+            "เปลี่ยนทุก procedure เป็น adminProcedure ลบ inline check ออกให้หมด (single source of truth)",
+            "ลบโค้ด dead L76-78"
+          ]
+        },
+        {
+          "id": "RBAC-03",
+          "title": "teamId hardcode = 90001 ในการอ่าน settings ของ admin",
+          "severity": "high",
+          "location": "server/routers/admin.ts (L158)",
+          "problem": [
+            "getSettingsMasked ใช้ ctx.teamId ?? 90001 แต่ ctx.teamId ไม่มีจริง → ใช้ 90001 เสมอ",
+            "90001 hardcode ซ้ำใน serpClient (DEFAULT_ADMIN_TEAM) และ schedulerWorker (SYSTEM_TEAM_ID) โดยไม่รับประกันว่ามีทีมนี้จริง",
+            "admin ทีมอื่นเห็น/แก้ settings ของทีม 90001 = tenant leak"
+          ],
+          "fix": [
+            "resolve teamId จริงผ่าน resolveTeamIdForSettings(ctx)",
+            "ย้าย system team/admin id ไป ENV เดียว + seed ใน migration"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Guest (ยังไม่ล็อกอิน)",
+      "findings": [
+        {
+          "id": "GUEST-01",
+          "title": "ไม่มี Route Guard ฝั่ง client — ทุกหน้าเข้าถึง URL ได้โดยตรง",
+          "severity": "high",
+          "location": "client/src/App.tsx",
+          "problem": [
+            "ทุก route render component ตรง ๆ ไม่มี wrapper ตรวจ isLoggedIn",
+            "Guest พิมพ์ URL ตรงเห็นโครงหน้าก่อนโดน backend ตอบ UNAUTHORIZED ภายหลัง (กันด้วย timer 500ms = workaround)",
+            "/audit (admin) อยู่กลุ่มเดียวกัน ไม่มีกันระดับ route"
+          ],
+          "fix": [
+            "สร้าง <RequireAuth>/<RequireAdmin> ครอบ route กลุ่ม protected/admin",
+            "redirect /login ทันทีเมื่อ me.data.isLoggedIn===false"
+          ]
+        },
+        {
+          "id": "GUEST-02",
+          "title": "route /members และ /teams redirect ไปหน้าแรกตายตัว = ฟีเจอร์ค้าง",
+          "severity": "medium",
+          "location": "client/src/App.tsx (L37-41)",
+          "problem": [
+            "backend teams.addMember/changePermission มีอยู่ แต่ไม่มีหน้า UI ให้ใช้ — เพิ่มสมาชิกทีมผ่านเว็บไม่ได้"
+          ],
+          "fix": [
+            "สร้างหน้า Team Management เชื่อม teams router หรือซ่อนเมนู/route + ระบุใน roadmap"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Writer (ผู้เขียนบทความ)",
+      "findings": [
+        {
+          "id": "WRITER-01",
+          "title": "dev-fallback mock อาจรั่วสู่ production — คืนข้อมูลปลอมแทน error",
+          "severity": "critical",
+          "location": "server/routers/projects.ts, teams.ts (catch block เช็ค NODE_ENV)",
+          "problem": [
+            "หลาย procedure ใช้ catch(e){ if(NODE_ENV==='development') return mockData }",
+            "พึ่ง process.env.NODE_ENV โดยตรง ต่างจาก IS_DEV/IS_PROD ที่รวม VERCEL — ถ้า env ตั้งพลาด mock อาจทำงานบน production",
+            "DB ล่มแต่ผู้ใช้เห็น 'สร้างสำเร็จ' (mock:true) = silent data loss",
+            "teams.create fallback ownerId=1 ตายตัว อาจผูกทีมผิดตัว"
+          ],
+          "fix": [
+            "ใช้ IS_DEV จาก env.ts แทน process.env.NODE_ENV ทุกจุด",
+            "บน production throw error จริงเสมอ ห้ามคืน mock",
+            "ลบ mock ที่ return ownerId=1 / insertId=Date.now()"
+          ]
+        },
+        {
+          "id": "WRITER-02",
+          "title": "insertId ดึงมาไม่แน่นอน มี fallback = Date.now()",
+          "severity": "high",
+          "location": "teams.ts, projects.ts, write.ts, research.ts",
+          "problem": [
+            "อ่าน insertId ด้วย chain ยาว ... ?? Date.now() — ถ้ารูปแบบผลลัพธ์ไม่ตรง fallback เป็น timestamp = id เพี้ยน query ตามไม่เจอ",
+            "extractInsertId copy ซ้ำใน write.ts และ research.ts"
+          ],
+          "fix": [
+            "helper กลาง getInsertId(res) คืน number หรือ throw (ห้าม fallback timestamp)",
+            "ใช้ .$returningId() ของ drizzle หรือ LAST_INSERT_ID() ในทรานแซกชันเดียว"
+          ]
+        },
+        {
+          "id": "WRITER-03",
+          "title": "Article Writer สร้าง PLACEHOLDER เมื่อ LLM ล้ม แต่ยังนับเป็น draft ปกติ",
+          "severity": "high",
+          "location": "server/services/articleWriterService.ts (L384-395)",
+          "problem": [
+            "LLM ล้มครบ 5/5 → ใส่ placeholder ลงเนื้อหา แต่ยาวพอผ่าน MIN_BODY_CHARS จึงนับเป็นสำเร็จ",
+            "บทความมีเนื้อหาปลอมปนโดยสถานะยัง draft ปกติ ผู้เขียนอาจเผลอ publish"
+          ],
+          "fix": [
+            "เมื่อเกิด placeholder ให้ mark stepStatus='fail' หรือ flag กัน publish + เตือนใน UI",
+            "บันทึกจำนวน section placeholder ให้ Admin Audit เห็นคุณภาพจริง"
+          ]
+        },
+        {
+          "id": "WRITER-04",
+          "title": "getById/getActive ซ่อน error เป็น null — UI แยกไม่ออก 'ไม่มีสิทธิ์' vs 'ไม่มีข้อมูล'",
+          "severity": "medium",
+          "location": "server/routers/projects.ts (getById catch → return null)",
+          "problem": [
+            "FORBIDDEN/NOT_FOUND/DB error กลายเป็น null เหมือนกันหมด client แยกไม่ออก"
+          ],
+          "fix": [
+            "ปล่อย TRPCError โยนตามจริง ให้ client จัดการตาม error.code"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Admin",
+      "findings": [
+        {
+          "id": "ADMIN-01",
+          "title": "backdoor: devSignin ทำงานได้ใน production ผ่าน password 'test1234'",
+          "severity": "critical",
+          "location": "server/auth.ts (devSignin mutation)",
+          "problem": [
+            "มี isTestUser = input.password === 'test1234' และ if(IS_PROD && !isTestUser && ...) throw → ส่ง test1234 ข้ามการบล็อก production ได้",
+            "openId กำหนด role ได้ ถ้าใช้ ADMIN_OPENID (เป็น default ในโค้ด เดาได้) จะได้ admin ทันที = ยึดระบบ",
+            "debug log (AUTH_DEBUG_V16) print password ทีละ char code ลง console"
+          ],
+          "fix": [
+            "ลบเงื่อนไข isTestUser==='test1234' ทันที (นี่คือ backdoor)",
+            "production ปิด devSignin สมบูรณ์ เหลือเฉพาะ Google OAuth",
+            "ลบ console.warn ที่ log password/char codes ทั้งหมด",
+            "ย้าย ADMIN_OPENID/ADMIN_EMAIL ออกจาก default ในโค้ด ไปเป็น ENV บังคับ"
+          ]
+        },
+        {
+          "id": "ADMIN-02",
+          "title": "AdminAuditPage ไม่มี guard ฝั่ง client เลย (ไม่ใช้ useAuth)",
+          "severity": "high",
+          "location": "client/src/pages/AdminAuditPage.tsx",
+          "problem": [
+            "ไม่ import useAuth ไม่ตรวจ role — render เนื้อหา admin ทันทีที่เข้า /audit",
+            "non-admin เห็นโครงหน้า/spinner และ query error ทั้งหน้า = UX แย่ + เผยโครงสร้าง"
+          ],
+          "fix": [
+            "ครอบ <RequireAdmin> หรือเช็ค user.role==='admin' แล้ว render 'ไม่มีสิทธิ์'"
+          ]
+        },
+        {
+          "id": "ADMIN-03",
+          "title": "นิยาม isAdmin ฝั่ง client ไม่ตรงกับฝั่ง server",
+          "severity": "medium",
+          "location": "client/src/pages/SettingsPage.tsx (L50); MainDashboardShell.tsx (L106)",
+          "problem": [
+            "client: admin = role==='admin' || permission==='owner'|'admin' (team permission)",
+            "server: admin = users.role==='admin' เท่านั้น",
+            "owner ที่ role=writer เห็นปุ่ม admin ฝั่ง UI แต่ server ปฏิเสธ = สับสน"
+          ],
+          "fix": [
+            "กำหนดนิยาม admin capability ให้ตรงกันสองฝั่ง เอกสารแยก role (ระบบ) vs permission (ทีม) ให้ชัด"
+          ]
+        },
+        {
+          "id": "ADMIN-04",
+          "title": "AES key ใช้ SESSION_SECRET ร่วมกับ session JWT — ผูก 2 หน้าที่เข้าด้วยกัน",
+          "severity": "medium",
+          "location": "server/routers/settings.ts (getEncryptionKey); server/_core/sdk.ts",
+          "problem": [
+            "คีย์เข้ารหัส API key = sha256(SESSION_SECRET) ตัวเดียวกับเซ็น JWT",
+            "หมุน SESSION_SECRET เพื่อความปลอดภัย session จะทำให้ API key ที่เข้ารหัสไว้ decrypt ไม่ได้ (ข้อมูลสูญ)",
+            "env.ts มี fallback SESSION_SECRET='FALLBACK_UNSAFE_...' บน Vercel = คีย์เดาได้"
+          ],
+          "fix": [
+            "แยก ENCRYPTION_KEY ต่างหากจาก SESSION_SECRET",
+            "ลบ fallback secret hardcode ถ้าไม่ตั้งให้ fail ชัดเจน"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "System / Scheduler",
+      "findings": [
+        {
+          "id": "SCHED-01",
+          "title": "Scheduler auto-publish พังทุกครั้ง — เรียก protectedProcedure ด้วย session=undefined",
+          "severity": "critical",
+          "location": "server/workers/schedulerWorker.ts (L74); server/app.ts (L219); server/routers/write.ts (publish)",
+          "problem": [
+            "scheduler สร้าง caller ด้วย session:undefined แล้วเรียก write.publish (protectedProcedure)",
+            "isAuthenticated ตรวจ ctx.session.openId = undefined → throw UNAUTHORIZED เสมอ",
+            "ฟีเจอร์ตั้งเวลาเผยแพร่ (Phase 3) ไม่เคยทำงานสำเร็จ บทความค้างเป็น draft",
+            "publish ใช้ assertProjectAccess query จาก openId → หา user ไม่เจอ"
+          ],
+          "fix": [
+            "สร้าง systemProcedure หรือ service function ที่ไม่ผ่าน RBAC ปกติ สำหรับ background job",
+            "หรือ inject session ที่มี openId จริงของ system account ที่ seed ไว้",
+            "เพิ่ม integration test จำลอง scheduler tick"
+          ]
+        },
+        {
+          "id": "SCHED-02",
+          "title": "Scheduler ทำงานเฉพาะ IS_PROD && !VERCEL — บน Vercel serverless ไม่มี cron",
+          "severity": "high",
+          "location": "server/app.ts (L192)",
+          "problem": [
+            "บล็อก scheduler กันด้วย IS_PROD && !VERCEL เพราะ serverless ไม่มี process ค้างรัน setInterval",
+            "deploy หลักคือ Vercel → บน production จริงจะไม่มี scheduler เลย auto-publish ตายสนิท"
+          ],
+          "fix": [
+            "ใช้ Vercel Cron Jobs ยิงมา /api/cron/publish ป้องกันด้วย secret header",
+            "หรือย้าย scheduler ไป VPS/worker แยก แล้วระบุสถาปัตยกรรมให้ชัด"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "Database (Drizzle/MySQL)",
+      "findings": [
+        {
+          "id": "DB-01",
+          "title": "schema.ts มี 13 tables แต่คอมเมนต์หัวไฟล์ยังเขียน '8 Tables ONLY'",
+          "severity": "medium",
+          "location": "db/schema.ts",
+          "problem": [
+            "หัวไฟล์ประกาศ 8 Tables ONLY แต่จริงมี 13 (settings, serp_metric_cache, research_packages, research_audit, write_articles, project_brand_voices)",
+            "คอมเมนต์ไม่ตรงสคีมาจริง สับสนว่าอะไรคือ source of truth"
+          ],
+          "fix": [
+            "อัปเดตคอมเมนต์ให้ตรงจำนวนตารางจริง + ระบุตารางไหนจาก migration ไหน",
+            "รัน drizzle-kit generate เทียบ DB จริง ตรวจ drift"
+          ]
+        },
+        {
+          "id": "DB-02",
+          "title": "articles.content เป็น text แต่คาดหวัง LONGTEXT — เสี่ยงเนื้อหายาวถูกตัด",
+          "severity": "high",
+          "location": "db/schema.ts (articles.content)",
+          "problem": [
+            "บทความ EEAT 1500+ คำอาจเกิน 64KB; MySQL TEXT default = 64KB ถ้า migration สร้างเป็น TEXT ธรรมดา เนื้อหาถูกตัดเงียบ"
+          ],
+          "fix": [
+            "ตรวจ DDL migration 0001 ว่า content เป็น LONGTEXT; ถ้าไม่ ให้ ALTER",
+            "เพิ่ม test เขียน >64KB ยืนยันบันทึก/อ่านครบ"
+          ]
+        },
+        {
+          "id": "DB-03",
+          "title": "loadSettingsForTeam ลบ row ที่ decrypt ไม่ได้ทิ้งอัตโนมัติ",
+          "severity": "medium",
+          "location": "server/routers/settings.ts (loadSettingsForTeam)",
+          "problem": [
+            "decrypt ไม่สำเร็จ (เช่น secret เปลี่ยน) → db.delete row ทันที ถ้า secret ผิดชั่วคราว API key หายถาวรโดยไม่แจ้ง"
+          ],
+          "fix": [
+            "เปลี่ยนจากลบ เป็น mark invalid + log + แจ้ง admin ตั้งค่าใหม่"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "API / tRPC",
+      "findings": [
+        {
+          "id": "API-01",
+          "title": "client ใช้ httpLink (ไม่ batch) แต่คอมเมนต์อ้าง httpBatchLink",
+          "severity": "low",
+          "location": "client/src/trpc.ts",
+          "problem": [
+            "โค้ดใช้ httpLink (ยิงทีละ request) แต่คอมเมนต์อ้าง httpBatchLink = เอกสารไม่ตรงโค้ด",
+            "ไม่ batch → Dashboard ยิงหลาย query พร้อมกัน เปิดหลาย connection = ช้า + เป็นเหตุ race 401"
+          ],
+          "fix": [
+            "เปลี่ยนเป็น httpBatchLink รวม request ลด race+latency แล้วปรับคอมเมนต์"
+          ]
+        },
+        {
+          "id": "API-02",
+          "title": "auth race handling ซับซ้อนเกิน — 4-5 ชั้น interceptor แก้อาการไม่แก้เหตุ",
+          "severity": "medium",
+          "location": "client/src/trpc.ts + hooks/useAuth.ts",
+          "problem": [
+            "จัดการ 401 ถึง 4-5 ชั้น (fetch wrapper, QueryClient onError x2, useAuth effect, module cache TTL 5 นาที) + คอมเมนต์ PHASE 2I/2J/2K",
+            "รากปัญหา: ยิง protected query ก่อน auth.me resolve; cache/timer กลบอาการ เพิ่มจุดพังใหม่ (cache ค้างคิดว่ายัง login)"
+          ],
+          "fix": [
+            "แก้ต้นเหตุ: gate protected query รอ auth.me resolve (RequireAuth) แล้วถอด interceptor ซ้อน"
+          ]
+        },
+        {
+          "id": "API-03",
+          "title": "errorFormatter ซ่อน stack เฉพาะ INTERNAL_SERVER_ERROR — error อื่นยังเผยรายละเอียดภายใน",
+          "severity": "low",
+          "location": "server/_core/trpc.ts (errorFormatter)",
+          "problem": [
+            "prod ซ่อนเฉพาะ INTERNAL_SERVER_ERROR; BAD_REQUEST/FORBIDDEN ยังส่งข้อความละเอียด (เช่น 'Your role: member', team id)"
+          ],
+          "fix": [
+            "prod ลดรายละเอียด error ที่เผย internal id/role เก็บใน server log พร้อม traceId"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "UX / UI",
+      "findings": [
+        {
+          "id": "UX-01",
+          "title": "redirect ใช้ setTimeout 500ms เดา — กระพริบ/หลุดล็อกอินชั่วคราว",
+          "severity": "medium",
+          "location": "client/src/layouts/MainDashboardShell.tsx (L94-98)",
+          "problem": [
+            "guard redirect ใช้ setTimeout 500ms รอ auth resolve = เดาเวลา ไม่ deterministic เครื่องช้าอาจ redirect ทั้งที่ login อยู่"
+          ],
+          "fix": [
+            "ผูก redirect กับสถานะจริง me.isSuccess && !isLoggedIn ผ่าน RequireAuth"
+          ]
+        },
+        {
+          "id": "UX-02",
+          "title": "เมนู 'ตั้งค่าระบบ' และ 'Admin Audit' แสดงให้ทุก role เห็น",
+          "severity": "medium",
+          "location": "client/src/layouts/MainDashboardShell.tsx",
+          "problem": [
+            "เมนู settings/audit ไม่กรองตาม role — writer เห็นเมนูที่กดแล้วใช้ไม่ได้"
+          ],
+          "fix": [
+            "กรองเมนูตาม user.role/capability ซ่อนเมนู admin จาก writer"
+          ]
+        },
+        {
+          "id": "UX-03",
+          "title": "KeywordClusterPlanner 290KB / WritePage 177KB — ไฟล์เดียวยักษ์",
+          "severity": "low",
+          "location": "client/src/pages/KeywordClusterPlanner.tsx, WritePage.tsx",
+          "problem": [
+            "component หน้าเดียว 290KB/177KB รวม logic+UI+state ไว้ที่เดียว ยากดูแล/ทดสอบ/code-split"
+          ],
+          "fix": [
+            "แตกเป็น sub-component/hook แยก business logic ออกจาก presentation"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "หนี้ทางเทคนิค / ไฟล์ปนใน repo",
+      "findings": [
+        {
+          "id": "DEBT-01",
+          "title": "ไฟล์ debug/log/temporary หลุดเข้ามาใน repo",
+          "severity": "medium",
+          "location": "backend.log, vite*.log, .cache_vps_builder_now.ts (80KB), db/debug_*.ts, debug_*.mjs, deploy_tmp/, .vercel/",
+          "problem": [
+            "ไฟล์ log/debug/cache/temp จำนวนมาก commit เข้ามา (~185 .mjs) repo รก + เสี่ยงข้อมูลภายใน/เส้นทาง deploy หลุด"
+          ],
+          "fix": [
+            "เพิ่ม *.log, .cache_*, deploy_tmp/, .vercel/, debug_*, _tmp_* เข้า .gitignore แล้วลบออกจาก repo"
+          ]
+        },
+        {
+          "id": "DEBT-02",
+          "title": "debug logging ระดับ verbose ค้างใน production path",
+          "severity": "high",
+          "location": "server/auth.ts (AUTH_DEBUG_V16)",
+          "problem": [
+            "devSignin มี console.warn 15+ บรรทัด print input.password, char codes, ADMIN_OPENID ทุกครั้งที่ถูกเรียก รันบน production ด้วย",
+            "ความลับอาจถูกเก็บใน log ของ Vercel/PM2"
+          ],
+          "fix": [
+            "ลบ AUTH_DEBUG_V16 ทั้งหมด หรือ gate ด้วย IS_DEV ห้าม log credential ทุกกรณี"
+          ]
+        },
+        {
+          "id": "DEBT-03",
+          "title": "โค้ด extractInsertId / sessionCookieDomain ซ้ำหลายไฟล์",
+          "severity": "low",
+          "location": "write.ts, research.ts (extractInsertId); trpc.ts, auth.ts (sessionCookieDomain)",
+          "problem": [
+            "ฟังก์ชันเดียวกัน copy-paste หลายไฟล์ แก้ที่เดียวไม่ครบ เสี่ยง drift"
+          ],
+          "fix": [
+            "ย้ายไป util กลาง (server/_core/util.ts) import ใช้ร่วม"
+          ]
+        }
+      ]
+    }
+  ]
+}

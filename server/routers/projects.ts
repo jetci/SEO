@@ -3,6 +3,7 @@
 // All procedures guard project team membership. Soft delete via is_active=0 (SA).
 import { z } from 'zod';
 import { router } from '../_core/trpc.js';
+import { IS_DEV } from '../_core/env.js';
 import { protectedProcedure, TRPCError } from '../_core/middleware/rbac.js';
 import { db } from '../../db/index.js';
 import { users, projects, categories, articles, teamMembers, projectBrandVoices } from '../../db/schema.js';
@@ -61,7 +62,7 @@ export const projectsRouter = router({
         const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
         return { ok: true, project: row, projectId };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') {
+        if (IS_DEV) {
           console.warn('[projects.create] DB unavailable fallback mock.', e?.message ?? String(e).slice(0, 100));
           const mockId = Date.now();
           return {
@@ -123,7 +124,7 @@ export const projectsRouter = router({
           .limit(pageSize)
           .offset(Math.max(0, (page - 1) * pageSize));
 
-        const openId = ctx.session.openId;
+        const openId = ctx.session!.openId;
         const [userRow] = await db.select({ id: users.id }).from(users).where(eq(users.googleOpenId, openId)).limit(1);
         const teamPermMap = new Map<number, string>();
         if (userRow) {
@@ -146,7 +147,7 @@ export const projectsRouter = router({
         });
         return out;
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') {
+        if (IS_DEV) {
           console.warn('[projects.list] DB fallback.', e?.message ?? String(e).slice(0, 100));
           return [] as any[];
         }
@@ -180,7 +181,7 @@ export const projectsRouter = router({
         const updated: any = await db.update(projects).set(patch).where(eq(projects.id, input.id));
         return { ok: true, affected: Number(updated[0]?.affectedRows ?? updated.affectedRows ?? (updated as any)?.[0]?.affectedRows ?? 0) };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') {
+        if (IS_DEV) {
           console.warn('[projects.update] DB fallback mock.', e?.message ?? String(e).slice(0, 100));
           return { ok: true, affected: 1, mock: true };
         }
@@ -216,7 +217,7 @@ export const projectsRouter = router({
           affected: Number(del[0]?.affectedRows ?? del.affectedRows ?? (del as any)?.[0]?.affectedRows ?? 0),
         };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development' && !(e instanceof TRPCError)) {
+        if (IS_DEV && !(e instanceof TRPCError)) {
           console.warn('[projects.delete] DB fallback mock success.', e?.message ?? String(e).slice(0, 100));
           return { ok: true, softDeleted: true, affected: 1, mock: true };
         }
@@ -249,7 +250,7 @@ export const projectsRouter = router({
           color: pickCategoryColor(r.project.categoryId),
         };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development' && !(e instanceof TRPCError)) {
+        if (IS_DEV && !(e instanceof TRPCError)) {
           console.warn('[projects.get] DB fallback.', e?.message ?? String(e).slice(0, 100));
           return {
             id: input.id, teamId: 1, ownerId: 1, categoryId: 1,
@@ -300,7 +301,7 @@ export const projectsRouter = router({
           coverKeyword: (rows[0].project as any).mainKeyword ?? '',
         };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') {
+        if (IS_DEV) {
           console.warn('[projects.getActive] fallback.', e?.message ?? String(e).slice(0, 100));
         }
         return null;
@@ -322,7 +323,7 @@ export const projectsRouter = router({
         try { voiceParsed = JSON.parse(row.voiceJson || '{}'); } catch { voiceParsed = {}; }
         return { id: row.id, projectId: row.projectId, scrapedUrl: row.scrapedUrl, voice: voiceParsed, updatedAt: row.updatedAt, createdAt: row.createdAt };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') return null;
+        if (IS_DEV) return null;
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: String(e?.message ?? e).slice(0, 200) });
       }
     }),

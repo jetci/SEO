@@ -4,7 +4,7 @@
 import { z } from 'zod';
 import * as crypto from 'node:crypto';
 import { router } from '../_core/trpc.js';
-import { protectedProcedure, TRPCError } from '../_core/middleware/rbac.js';
+import { adminProcedure, TRPCError } from '../_core/middleware/rbac.js';
 import { eq, and, desc, gt, sql, sum, count, avg } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import {
@@ -72,11 +72,7 @@ export const adminRouter = router({
    * admin.getOverview — 4 KPI card numbers + role breakdowns
    * permission: admin ONLY
    */
-  getOverview: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user?.role !== 'admin' && (ctx as any)?.minRoleResolved !== 'admin') {
-      // explicit fallback: assert RBAC via middleware already gates minRole=admin below via protectedProcedure? No, we wrap inline.
-    }
-    if (ctx.user?.role !== 'admin') throw new TRPCError({ code: 'UNAUTHORIZED', message: 'ADMIN_ONLY' });
+  getOverview: adminProcedure.query(async ({ ctx }) => {
     const [usersCount, teamsCount, projectsCount, articlesCount] = await Promise.all([
       db.select({ n: count(users.id) }).from(users),
       db.select({ n: count(teams.id) }).from(teams),
@@ -119,8 +115,7 @@ export const adminRouter = router({
    * admin.getProjectsEEAT — avg eeat_score grouped by project, keyword counts, article counts, YMYL flag
    * permission: admin ONLY
    */
-  getProjectsEEAT: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user?.role !== 'admin') throw new TRPCError({ code: 'UNAUTHORIZED', message: 'ADMIN_ONLY' });
+  getProjectsEEAT: adminProcedure.query(async ({ ctx }) => {
     const projs = await db.select({
       id: projects.id, name: projects.name, mainKeyword: projects.mainKeyword,
       categoryId: projects.categoryId,
@@ -153,8 +148,7 @@ export const adminRouter = router({
    * admin.getSettingsMasked — AES decrypt all provider API keys, show first4****last4 mask, Serper live ping status
    * permission: admin ONLY
    */
-  getSettingsMasked: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user?.role !== 'admin') throw new TRPCError({ code: 'UNAUTHORIZED', message: 'ADMIN_ONLY' });
+  getSettingsMasked: adminProcedure.query(async ({ ctx }) => {
     const teamId = Number((ctx as any)?.teamId ?? (ctx.user?.role === 'admin' ? 90001 : 0));
     const [llmProv, llmKey, serpProv, serpKey] = await Promise.all([
       settingsMaskedRow(teamId, 'llm_provider', 'LLM Provider', { isProvider: true }),
@@ -169,8 +163,7 @@ export const adminRouter = router({
    * admin.getLlmUsageBars — 7 day window sum(usd_cost_est) grouped by provider_model; budgetUsd hardcoded $200 (configurable)
    * permission: admin ONLY
    */
-  getLlmUsageBars: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user?.role !== 'admin') throw new TRPCError({ code: 'UNAUTHORIZED', message: 'ADMIN_ONLY' });
+  getLlmUsageBars: adminProcedure.query(async ({ ctx }) => {
     const since = new Date(Date.now() - 7 * 86400_000);
     const rows = await db.select({
       model: researchAudit.providerModel, provider: researchAudit.provider,
@@ -199,8 +192,7 @@ export const adminRouter = router({
    * Sections: (1) Audit Usage Last 500 Rows + (2) Projects EEAT + (3) KPIs overview.
    * permission: admin ONLY
    */
-  exportCSV: protectedProcedure.input(z.object({ section: z.enum(['all', 'usage', 'projects', 'kpis']).default('all') }).optional()).query(async ({ ctx, input }) => {
-    if (ctx.user?.role !== 'admin') throw new TRPCError({ code: 'UNAUTHORIZED', message: 'ADMIN_ONLY' });
+  exportCSV: adminProcedure.input(z.object({ section: z.enum(['all', 'usage', 'projects', 'kpis']).default('all') }).optional()).query(async ({ ctx, input }) => {
     const section = input?.section || 'all';
     let csv = '';
     const sep = ',';

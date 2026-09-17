@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { router } from '../_core/trpc.js';
 import { protectedProcedure, TRPCError, type ProtectedCtx } from '../_core/middleware/rbac.js';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, or, desc, sql } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { articles, clusters, keywords as keywordsTable, projects as projectsTable, categories as categoriesTable, researchPackages as rpTable, users, writeArticles } from '../../db/schema.js';
 import { assertProjectAccess } from './_projectAccess.js';
@@ -124,10 +124,91 @@ const NEW_UUID = () => crypto.randomUUID();
 
 export const writeRouter = router({
   createDraft: protectedProcedure
-    .input(z.object({ keywordId: z.number().int().positive(), force: z.boolean().default(false), model: z.string().max(120).optional(), targetWordCount: z.number().int().min(500).max(20000).optional() }))
+    .input(z.object({
+      keywordId: z.number().int().positive().optional(),
+      draftId: z.number().int().positive().optional(),
+      keyword: z.string().min(1).max(255).optional(),
+      outlineSections: z.array(z.object({ heading_level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6)]), heading_text: z.string().min(1).max(255), word_target_min: z.number().int().default(0), key_points: z.array(z.string()).default([]) })).max(80).optional(),
+      category: z.string().max(120).optional(),
+      intent: z.string().max(120).optional(),
+      contentType: z.string().max(120).optional(),
+      force: z.boolean().default(false),
+      model: z.string().max(120).optional(),
+      targetWordCount: z.number().int().min(500).max(20000).optional(),
+    }).refine(i =>
+      Number(i.keywordId ?? 0) > 0 || Number(i.draftId ?? 0) > 0 || (typeof i.keyword === 'string' && i.keyword.trim().length > 0),
+      { message: 'ต้องระบุ keywordId หรือ draftId หรือ keyword text อย่างน้อย 1 อย่าง' }
+    ))
     .mutation(async ({ ctx, input }) => {
       const traceId = NEW_UUID();
       const selectedModel = String(input.model || "").trim() || undefined;
+
+      // ── FRESH START GUARD: Resolve keywordId / draftId from raw keyword text when user typed at /write (no URL kw_id/draft_id params from KCP)
+      let resolvedKeywordId: number = Number(input.keywordId ?? 0);
+      let resolvedDraftId: number = Number(input.draftId ?? 0);
+      if (resolvedKeywordId === 0 && resolvedDraftId === 0 && typeof input.keyword === 'string' && input.keyword.trim().length > 0) {
+        const kwText = input.keyword.trim();
+        try {
+          const [existingKw] = await db.select({
+            id: keywordsTable.id, keywordText: keywordsTable.keywordText, tier: keywordsTable.tier,
+            projectId: keywordsTable.projectId, categoryId: keywordsTable.categoryId, clusterId: keywordsTable.clusterId,
+          }).from(keywordsTable).where(eq(keywordsTable.keywordText, kwText)).limit(1);
+          if (existingKw) resolvedKeywordId = Number(existingKw.id);
+        } catch { /* lookup fail */ }
+        if (resolvedKeywordId === 0) {
+          let defaultProjectId: number = 0;
+          let defaultCategoryId: number = 0;
+          let defaultClusterId: number = 0;
+          try {
+            const [projRow] = await db.select({ id: projectsTable.id, categoryId: projectsTable.categoryId }).from(projectsTable).limit(1);
+            if (projRow) { defaultProjectId = Number(projRow.id); if (projRow.categoryId) defaultCategoryId = Number(projRow.categoryId); }
+          } catch { /* no projects yet */ }
+          try {
+            const [cl] = await db.select({ id: clusters.id }).from(clusters).limit(1);
+            if (cl) defaultClusterId = Number(cl.id);
+          } catch { /* ignore */ }
+          if (!defaultCategoryId) {
+            try { const [catR] = await db.select({ id: categoriesTable.id }).from(categoriesTable).limit(1); if (catR) defaultCategoryId = Number(catR.id); } catch {}
+          }
+          let intentSuggestion: 'commercial' | 'informational' | 'navigational' | 'transactional' = 'informational';
+          {
+            const intentRaw = (typeof input.intent === 'string' && input.intent.trim()) ? input.intent.trim().toLowerCase().slice(0, 40) : '';
+            if (intentRaw === 'commercial') intentSuggestion = 'commercial';
+            else if (intentRaw === 'transactional') intentSuggestion = 'transactional';
+            else if (intentRaw === 'navigational') intentSuggestion = 'navigational';
+          }
+          try {
+            const inserted = await db.insert(keywordsTable).values({
+              clusterId: defaultClusterId || 0,
+              projectId: defaultProjectId || 0,
+              categoryId: defaultCategoryId || 0,
+              keywordText: kwText,
+              intentSuggestion,
+              status: 'pending',
+              tier: 'supporting',
+              isTarget: 0,
+            }).$returningId();
+            if (inserted && inserted[0] && inserted[0].id) resolvedKeywordId = Number(inserted[0].id);
+          } catch {
+            try {
+              const [e2] = await db.select({ id: keywordsTable.id }).from(keywordsTable).where(eq(keywordsTable.keywordText, kwText)).limit(1);
+              if (e2) resolvedKeywordId = Number(e2.id);
+            } catch {}
+          }
+        }
+      }
+      if (resolvedKeywordId === 0 && resolvedDraftId === 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'ไม่สามารถค้นหาหรือสร้าง Keyword ได้ กรุณาเลือกจาก Keyword Cluster Planner หรือพิมพ์ Keyword ใหม่อีกครั้ง' });
+      }
+
+      // If we have draftId, load article and get keywordId from it
+      if (resolvedDraftId > 0) {
+        try {
+          const [dr] = await db.select({ kwId: articles.keywordId, title: articles.title }).from(articles).where(eq(articles.id, resolvedDraftId)).limit(1);
+          if (dr && dr.kwId && resolvedKeywordId === 0) resolvedKeywordId = Number(dr.kwId);
+        } catch { /* ignore */ }
+      }
+
       // ── SANITIZE SELECTED MODEL (Cross-Provider ID prefix guard — same logic as generateOutline)
       const teamSettingsCreate = await resolveTeamSettings(ctx);
       const runtimeProviderCreate = String(teamSettingsCreate.llmProvider || 'openrouter').toLowerCase();
@@ -146,8 +227,8 @@ export const writeRouter = router({
       const [kw] = await db.select({
         id: keywordsTable.id, keywordText: keywordsTable.keywordText, tier: keywordsTable.tier,
         projectId: keywordsTable.projectId, categoryId: keywordsTable.categoryId, clusterId: keywordsTable.clusterId,
-      }).from(keywordsTable).where(eq(keywordsTable.id, input.keywordId)).limit(1);
-      if (!kw) throw new TRPCError({ code: 'NOT_FOUND', message: `Keyword ${input.keywordId} not found.` });
+      }).from(keywordsTable).where(eq(keywordsTable.id, resolvedKeywordId)).limit(1);
+      if (!kw) throw new TRPCError({ code: 'NOT_FOUND', message: `Keyword ${resolvedKeywordId} not found.` });
       // ── USER SIMPLIFY RULE: ทุก Pillar/Cluster/Supporting เขียนได้เดียวกัน ──
       // OLD BLOCKER REMOVED: Pillar tier no longer throws BAD_REQUEST
       if (!kw.projectId) throw new TRPCError({ code: 'BAD_REQUEST', message: '[NO_PROJECT_ID] keyword missing project FK.' });
@@ -155,7 +236,7 @@ export const writeRouter = router({
 
       // Resolve author id safely: ctx.user can be NULL if user DB row not pre-hydrated into context
       // (per ProtectedCtx type user: User | null). Fallback: resolve via ctx.session.openId like other routers.
-      const openId = String(ctx.session.openId || '').trim();
+      const openId = String(ctx.session!.openId || '').trim();
       let authorId: number = 0;
       if (ctx.user && typeof ctx.user.id === 'number' && Number.isFinite(ctx.user.id) && ctx.user.id > 0) {
         authorId = Number(ctx.user.id);
@@ -218,7 +299,8 @@ export const writeRouter = router({
           writeStep: writeArticles.writeStep, stepStatus: writeArticles.stepStatus, wordCount: writeArticles.wordCount, eeatScore: writeArticles.eeatScore, disclaimerAdded: writeArticles.disclaimerAdded, citationsCount: writeArticles.citationsCount, writeId: writeArticles.id,
         }).from(articles).innerJoin(writeArticles, eq(writeArticles.articleId, articles.id)).where(and(eq(articles.projectId, Number(kw.projectId)), eq(articles.keywordId, kw.id))).limit(1);
         if (existing && existing.status === 'draft') {
-          return { ok: true, traceId, phase2Ready: true, draft_id: existing.artId, write_article_id: existing.writeId, from_existing: true, title: existing.title, content: existing.content, word_count_total: existing.wordCount, citations_count: existing.citationsCount, eeat_score: existing.eeatScore, disclaimer_added: !!existing.disclaimerAdded, ymyl_required: ymyl, status: existing.status, write_step: existing.writeStep, step_status: existing.stepStatus };
+          const existingHasPlaceholder = existing.stepStatus === 'fail';
+          return { ok: true, traceId, phase2Ready: true, draft_id: existing.artId, write_article_id: existing.writeId, from_existing: true, title: existing.title, content: existing.content, word_count_total: existing.wordCount, citations_count: existing.citationsCount, eeat_score: existing.eeatScore, disclaimer_added: !!existing.disclaimerAdded, ymyl_required: ymyl, status: existing.status, write_step: existing.writeStep, step_status: existing.stepStatus, has_placeholder: existingHasPlaceholder, placeholder_section_count: existingHasPlaceholder ? 1 : 0 };
         }
       }
 
@@ -308,6 +390,21 @@ export const writeRouter = router({
       // ── P0 TARGET WORD COUNT → DYNAMIC SECTION LENGTH ──
       const writerWordTarget = Number(input.targetWordCount ?? 0) > 0 ? Number(input.targetWordCount) : 3500;
 
+      // WP-B2 (CRITICAL): REQUIRE Research Package BEFORE writing draft (otherwise 100% generic / empty LLM output)
+      // EXCEPTION: Allow when input.outlineSections has >=3 sections (user has already generated AI Outline from Step3, baked H1/H2/H3 topics from SERP context) OR force=true emergency regeneration
+      const hasSerp = Array.isArray(pkgLite.serp_top10) && pkgLite.serp_top10.length >= 1;
+      const hasOverview = String(pkgLite.ai_overview || '').trim().length >= 80;
+      const bypassPkgCheck = !!input.force || (Array.isArray(input.outlineSections) && input.outlineSections.length >= 3);
+      if (!bypassPkgCheck && (!hasSerp || !hasOverview)) {
+        const missing: string[] = [];
+        if (!hasSerp) missing.push('SERP Organic Results (serp_top10 = 0 rows)');
+        if (!hasOverview) missing.push('AI Overview Summary (ai_overview < 80 chars)');
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `ยังไม่มีข้อมูล Research สำหรับคีย์เวิร์ดนี้ (ขาด: ${missing.join(' + ')}) — กรุณาไปรัน "วิจัยคีย์เวิร์ด / Research" ให้สำเร็จก่อนเริ่มเขียนบทความ. หากคุณเพิ่งรัน Research เมื่อสักครู่ โปรดรอประมาณ 10 วินาที แล้วลองกดอีกครั้ง`,
+        });
+      }
+
       // Write workflow step 5: mark running
       const start = Date.now();
 
@@ -350,6 +447,11 @@ export const writeRouter = router({
       // Persist write_articles workflow row step 8 = done draft + eeat_score
       const outlineJsonStr = JSON.stringify(out.outline);
       const clusterIdOrNull = kw.clusterId ? Number(kw.clusterId) : null;
+      // WP-B1: Use step_status_override from writeDraft — placeholder sections → stepStatus='fail' (NOT false success)
+      const resolvedStepStatus = ((out as any).step_status_override || 'done') as 'done' | 'pending' | 'running' | 'fail';
+      const placeholderCount = Number((out as any).placeholder_section_count || 0);
+      const hasPlaceholder = !!(out as any).has_placeholder;
+      const errorMsgForDb = hasPlaceholder ? `WARN: ${placeholderCount} section(s) = AUTO PLACEHOLDER (LLM 5/5 exhausted). User MUST edit manually before publish.` : null;
       try {
         await db.insert(writeArticles).values({
           articleId,
@@ -362,14 +464,14 @@ export const writeRouter = router({
           eeatScore: Math.min(100, Math.max(0, out.eeat_score_est)),
           citationsCount: Number(out.citations_count_total),
           writeStep: 8,
-          stepStatus: 'done',
-          errorMsg: null,
+          stepStatus: resolvedStepStatus,
+          errorMsg: errorMsgForDb,
         }).onDuplicateKeyUpdate({
           set: {
-            writeStep: 8, stepStatus: 'done', wordCount: Number(out.word_count_total),
+            writeStep: 8, stepStatus: resolvedStepStatus, wordCount: Number(out.word_count_total),
             eeatScore: Math.min(100, Math.max(0, out.eeat_score_est)),
             citationsCount: Number(out.citations_count_total), disclaimerAdded: out.disclaimer_added ? 1 : 0,
-            outlineJson: outlineJsonStr, researchPackageId: pkgInsertId, errorMsg: null, updatedAt: new Date(),
+            outlineJson: outlineJsonStr, researchPackageId: pkgInsertId, errorMsg: errorMsgForDb, updatedAt: new Date(),
           },
         });
       } catch (e: any) {
@@ -389,8 +491,10 @@ export const writeRouter = router({
         citations_count: out.citations_count_total,
         disclaimer_added: out.disclaimer_added,
         ymyl_required: out.ymyl_required,
+        placeholder_section_count: placeholderCount,
+        has_placeholder: hasPlaceholder,
+        step_status: resolvedStepStatus,
         write_step: 8,
-        step_status: 'done',
       };
     }),
 
@@ -506,6 +610,7 @@ export const writeRouter = router({
           disclaimer_added: !!row.disclaimerAdded, citations_count: row.citationsCount,
           write_step: row.writeStep, step_status: row.stepStatus, error_msg: row.errorMsg ?? null,
           outline: cachedOutline, // ถ้า cached outline เป็น Generic → field นี้จะเป็น NULL = FE จะ call generateOutline endpoint เองอัตโนมัติ ไม่ต้องกด Force
+          has_placeholder: row.stepStatus === 'fail',
         } : null,
         cluster_context,
         serp_research: {
@@ -657,10 +762,17 @@ export const writeRouter = router({
     .input(z.object({
       keywordId: z.number().int().positive().optional(),
       draftId: z.number().int().positive().optional(),
+      keyword: z.string().min(1).max(255).optional(),
+      category: z.string().max(120).optional(),
+      intent: z.string().max(120).optional(),
+      contentType: z.string().max(120).optional(),
       force: z.boolean().default(false),
       model: z.string().max(120).optional(),
       targetWordCount: z.number().int().min(500).max(20000).optional(),
-    }).refine(i => Number(i.keywordId ?? 0) > 0 || Number(i.draftId ?? 0) > 0, { message: 'keywordId หรือ draftId ต้องมีอย่างน้อย 1 ตัว' }))
+    }).refine(i =>
+      Number(i.keywordId ?? 0) > 0 || Number(i.draftId ?? 0) > 0 || (typeof i.keyword === 'string' && i.keyword.trim().length > 0),
+      { message: 'ต้องระบุ keywordId หรือ draftId หรือ keyword text อย่างน้อย 1 อย่าง' }
+    ))
     .mutation(async ({ ctx, input }) => {
       const traceId = NEW_UUID();
       const teamSettings = await resolveTeamSettings(ctx);
@@ -682,20 +794,100 @@ export const writeRouter = router({
         return raw;
       }
       const sanitizedModel = sanitizeModelId(input.model, runtimeProvider);
+
+      // ── FRESH START GUARD: Resolve keywordId from raw keyword when user starts from /write without URL params
+      let resolvedKeywordId: number = Number(input.keywordId ?? 0);
+      let resolvedDraftId: number = Number(input.draftId ?? 0);
+      if (resolvedKeywordId === 0 && resolvedDraftId === 0 && typeof input.keyword === 'string' && input.keyword.trim().length > 0) {
+        const kwText = input.keyword.trim();
+        // Step A: Try to find existing keyword by exact text match
+        try {
+          const [existingKw] = await db.select({
+            id: keywordsTable.id, keywordText: keywordsTable.keywordText, tier: keywordsTable.tier,
+            projectId: keywordsTable.projectId, categoryId: keywordsTable.categoryId, clusterId: keywordsTable.clusterId,
+          }).from(keywordsTable).where(eq(keywordsTable.keywordText, kwText)).limit(1);
+          if (existingKw) {
+            resolvedKeywordId = Number(existingKw.id);
+          }
+        } catch (_e) { /* lookup failed, continue to create path */ }
+
+        if (resolvedKeywordId === 0) {
+          // Step B: No existing keyword → find user's default project/category and INSERT
+          let defaultProjectId: number = 0;
+          let defaultCategoryId: number = 0;
+          let defaultClusterId: number = 0;
+          try {
+            // Resolve teamId from existing helper
+            const tId = await resolveTeamIdForSettings(ctx);
+            // Find any project for this team (first one)
+            try {
+              const [anyProj] = await db.select({ id: projectsTable.id }).from(projectsTable).limit(1);
+              defaultProjectId = anyProj?.id ? Number(anyProj.id) : 1;
+            } catch (_e) { defaultProjectId = 1; }
+            // Find any category (first one) - skip name match to avoid column mismatch errors
+            try {
+              const [anyCat] = await db.select({ id: categoriesTable.id }).from(categoriesTable).limit(1);
+              defaultCategoryId = anyCat?.id ? Number(anyCat.id) : 1;
+            } catch (_e) { defaultCategoryId = 1; }
+            // Find any cluster for the project (first one)
+            try {
+              if (defaultProjectId > 0) {
+                const [anyClus] = await db.select({ id: clusters.id }).from(clusters).where(eq(clusters.projectId, defaultProjectId)).limit(1);
+                defaultClusterId = anyClus?.id ? Number(anyClus.id) : 0;
+              }
+            } catch (_e) { defaultClusterId = 0; }
+          } catch (_e) { defaultProjectId = 1; defaultCategoryId = 1; defaultClusterId = 0; }
+          // Map intent suggestion enum
+          const intentRaw = String(input.intent || 'informational').toLowerCase();
+          let intentSuggestion: 'commercial' | 'informational' | 'navigational' | 'transactional' = 'informational';
+          if (intentRaw === 'commercial') intentSuggestion = 'commercial';
+          else if (intentRaw === 'transactional') intentSuggestion = 'transactional';
+          else if (intentRaw === 'navigational') intentSuggestion = 'navigational';
+          // INSERT the new keyword using $returningId (mariadb driver syntax)
+          try {
+            const insertedIds = await db.insert(keywordsTable).values({
+              clusterId: defaultClusterId || 0,
+              projectId: defaultProjectId,
+              categoryId: defaultCategoryId,
+              keywordText: kwText,
+              intentSuggestion,
+              status: 'pending',
+              tier: 'supporting',
+              isTarget: 0,
+            }).$returningId();
+            if (Array.isArray(insertedIds) && insertedIds.length && insertedIds[0]?.id) {
+              resolvedKeywordId = Number(insertedIds[0].id);
+            }
+          } catch (insertErr) {
+            // Last resort: try find the keyword again (maybe it was inserted by concurrent request)
+            try {
+              const [retryKw] = await db.select({ id: keywordsTable.id }).from(keywordsTable)
+                .where(eq(keywordsTable.keywordText, kwText)).limit(1);
+              if (retryKw?.id) resolvedKeywordId = Number(retryKw.id);
+            } catch (_retryErr) { /* ignore */ }
+          }
+        }
+      }
+
+      // ── FINAL GUARD: Ensure we have at least one valid ID after all resolution paths
+      if (resolvedKeywordId === 0 && resolvedDraftId === 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'ไม่สามารถค้นหาหรือสร้าง Keyword ได้ กรุณาเลือกคีย์เวิร์ดจาก Keyword Cluster Planner หรือเพิ่มรายการใหม่' });
+      }
+
       let kwRow: any, projId: number | undefined, catId: number | undefined, draftRowRef: any = null;
-      if (Number(input.draftId ?? 0) > 0) {
+      if (resolvedDraftId > 0) {
         const [r] = await db.select({
           id: articles.id, projectId: articles.projectId, categoryId: articles.categoryId, keywordId: articles.keywordId, title: articles.title, status: articles.status,
-        }).from(articles).where(eq(articles.id, Number(input.draftId!))).limit(1);
-        if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: `draftId ${input.draftId} not found.` });
+        }).from(articles).where(eq(articles.id, resolvedDraftId)).limit(1);
+        if (!r) throw new TRPCError({ code: 'NOT_FOUND', message: `draftId ${resolvedDraftId} not found.` });
         draftRowRef = r;
         projId = Number(r.projectId);
         catId = Number(r.categoryId ?? 0) || undefined;
         const [kw] = await db.select({ id: keywordsTable.id, keywordText: keywordsTable.keywordText, tier: keywordsTable.tier, projectId: keywordsTable.projectId, categoryId: keywordsTable.categoryId, clusterId: keywordsTable.clusterId }).from(keywordsTable).where(eq(keywordsTable.id, Number(r.keywordId ?? 0))).limit(1);
         kwRow = kw ?? { id: 0, keywordText: r.title ?? '(no keyword)', tier: 'supporting', projectId: projId, categoryId: catId, clusterId: 0 };
       } else {
-        const [kw] = await db.select({ id: keywordsTable.id, keywordText: keywordsTable.keywordText, tier: keywordsTable.tier, projectId: keywordsTable.projectId, categoryId: keywordsTable.categoryId, clusterId: keywordsTable.clusterId }).from(keywordsTable).where(eq(keywordsTable.id, Number(input.keywordId!))).limit(1);
-        if (!kw) throw new TRPCError({ code: 'NOT_FOUND', message: `keywordId ${input.keywordId} not found.` });
+        const [kw] = await db.select({ id: keywordsTable.id, keywordText: keywordsTable.keywordText, tier: keywordsTable.tier, projectId: keywordsTable.projectId, categoryId: keywordsTable.categoryId, clusterId: keywordsTable.clusterId }).from(keywordsTable).where(eq(keywordsTable.id, resolvedKeywordId)).limit(1);
+        if (!kw) throw new TRPCError({ code: 'NOT_FOUND', message: `keywordId ${resolvedKeywordId} not found.` });
         kwRow = kw;
         projId = Number(kw.projectId);
         catId = Number(kw.categoryId ?? 0) || undefined;

@@ -212,6 +212,7 @@ export default function WritePage() {
     } catch { return { kw_id: 0, draft_id: urlDraftIdRaw, project_id: 0 }; }
   });
   const [draftId, setDraftId] = useState<number>(urlParams.draft_id || urlDraftIdRaw);
+  const [writeHasPlaceholder, setWriteHasPlaceholder] = useState<boolean>(false);
   const [urlKwId] = useState<number>(urlParams.kw_id || 0); // for aiGenerateOutline keywordId arg
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const saveMut = trpc.write.saveDraft.useMutation();
@@ -423,6 +424,18 @@ export default function WritePage() {
   }
   async function doPublish(unpublish=false) {
     if (!draftId) { toast.error("ต้องมี Draft ID ก่อน Publish (สร้างจาก KCP Keyword card)"); return; }
+    const wcActual = estimateWordCount(bodyMd || '');
+    const wcTarget = Math.max(1000, Number(targetWordTotal) || 0);
+    const wcRatio = wcActual / Math.max(1, wcTarget);
+    const phRegex = /\[AUTO PLACEHOLDER\s*[—\-]/;
+    if (writeHasPlaceholder || phRegex.test(bodyMd || '')) {
+      toast.error('🚫 มี section AUTO PLACEHOLDER เหลืออยู่ ต้องเขียนใหม่ทั้งหมดก่อน Publish');
+      return;
+    }
+    if (wcRatio < 0.8) {
+      toast.error(`🚫 จำนวนคำไม่ถึงเกณฑ์ 80% (${wcActual.toLocaleString()}/${wcTarget.toLocaleString()} = ${Math.round(100*wcRatio)}%) — ต้องเขียนให้ครบก่อน`);
+      return;
+    }
     await doSave(true, true);
     const t = toast.loading(`${unpublish ? 'เลิกเผยแพร่' : 'เผยแพร่'} Draft #${draftId}...`);
     publishMut.mutate({ draftId, unpublish }, {
@@ -793,7 +806,17 @@ export default function WritePage() {
   const genOutlineMut = trpc.write.generateOutline.useMutation();
   async function aiGenerateOutline(force=false) {
     if (!keyword?.trim()) { toast.error("กรอก Keyword หลักก่อน สร้าง Outline"); return; }
-    genOutlineMut.mutate({ keywordId: urlKwId || undefined, draftId: draftId || undefined, force, model: model, targetWordCount: Math.max(1000, Number(targetWordTotal) || 0) }, {
+    genOutlineMut.mutate({
+      keywordId: urlKwId > 0 ? urlKwId : undefined,
+      draftId: draftId > 0 ? draftId : undefined,
+      keyword: keyword.trim(),
+      category: category || undefined,
+      intent: intent || undefined,
+      contentType: contentType || undefined,
+      force,
+      model: model,
+      targetWordCount: Math.max(1000, Number(targetWordTotal) || 0),
+    }, {
       onSuccess(r: any) {
         if (r?.ok && Array.isArray(r.outline?.sections)) {
           const safeSections = sanitizeOutlineRows(r.outline.sections);
@@ -1190,7 +1213,18 @@ export default function WritePage() {
 
   const getDraftQuery = trpc.write.getDraft.useQuery(
     { draftId: draftId || 0 },
-    { enabled: !!draftId && draftId > 0, refetchOnWindowFocus: false, staleTime: 1000 * 60 * 3 }
+    {
+      enabled: !!draftId && draftId > 0,
+      refetchOnWindowFocus: false,
+      staleTime: 1000 * 60 * 3,
+      onSuccess: (gd: any) => {
+        const wf = gd?.workflow;
+        const content = typeof gd?.draft?.content === 'string' ? gd.draft.content : (typeof gd?.content === 'string' ? gd.content : '');
+        const phRegex = /\[AUTO PLACEHOLDER\s*[—\-]/;
+        const hasPh = !!(wf?.has_placeholder) || phRegex.test(content);
+        setWriteHasPlaceholder(!!hasPh);
+      }
+    }
   );
 
   async function doRunCreateDraft(force = false) {
@@ -1204,9 +1238,7 @@ export default function WritePage() {
     streamTickRef.current = setInterval(() => {
       setStreamState(s => {
         if (s.phase !== 'running') return s;
-        const nextIdx = Math.min(s.currentIdx + 1, Math.max(0, s.total - 1)); // never last section → cap 90%
-        const pctMax90 = Math.min(90, Math.round((nextIdx / Math.max(1, s.total)) * 100));
-        void pctMax90;
+        const nextIdx = Math.min(s.currentIdx + 1, Math.max(0, s.total - 1));
         return { ...s, currentIdx: nextIdx };
       });
     }, 8500);
@@ -1238,6 +1270,9 @@ export default function WritePage() {
             const gMdes = gd?.draft?.meta_description ?? gd?.meta_description;
             if (typeof gMt === 'string' && gMt && !mt) setMt(String(gMt).slice(0,120));
             if (typeof gMdes === 'string' && gMdes && !mdes) setMdes(String(gMdes).slice(0,320));
+            const gdContent = typeof gd?.draft?.content === 'string' ? gd.draft.content : (typeof gd?.content === 'string' ? gd.content : '');
+            const gdHasPh = !!(gd?.workflow?.has_placeholder) || /\[AUTO PLACEHOLDER\s*[—\-]/.test(gdContent);
+            setWriteHasPlaceholder(!!gdHasPh);
           } catch { /* ignore fetch fail */ }
         }
         const finalMd = injectYmylIfNeeded(rawContent || '', category);
@@ -1264,14 +1299,33 @@ export default function WritePage() {
         try {
           const parsed = parseBodyMdIntoSections(finalMd || '');
           const countDone = parsed.filter(s => s.headingLevel >= 2 && s.body.trim().length >= 120).length;
-          stopStream('done');
-          setStreamState(s => {
-            const totalH2PlusInParsed = parsed.filter(p => p.headingLevel >= 2).length;
-            const newTotal = Math.max(s.total, countDone, totalH2PlusInParsed);
-            return { phase: 'done', currentIdx: Math.max(0, Math.min(countDone, newTotal)), total: newTotal, sectionBodies: parsed.map(x => x.body), errMsg: '' };
-          });
+          const actualWords = Number(r?.word_count_total ?? 0) > 0 ? Number(r.word_count_total) : (wordCount || 0);
+          const targetWords = Math.max(1000, Number(targetWordTotal) || 0);
+          const wordRatio = targetWords > 0 ? (actualWords / targetWords) : 0;
+          const hasPlaceholder = !!(r?.has_placeholder || (finalMd && /\[AUTO PLACEHOLDER\s*[—\-]/.test(finalMd)));
+          setWriteHasPlaceholder(!!hasPlaceholder);
+          // CT-03 Lie-Success gate: phase='done' ONLY if no placeholder AND total words ≥80% target. Otherwise keep phase=error max 90%.
+          if (!hasPlaceholder && wordRatio >= 0.8) {
+            stopStream('done');
+            setStreamState(s => {
+              const totalH2PlusInParsed = parsed.filter(p => p.headingLevel >= 2).length;
+              const newTotal = Math.max(s.total, countDone, totalH2PlusInParsed);
+              return { phase: 'done', currentIdx: Math.max(0, Math.min(countDone, newTotal)), total: newTotal, sectionBodies: parsed.map(x => x.body), errMsg: '' };
+            });
+          } else {
+            const err = hasPlaceholder
+              ? `มี section เป็น AUTO PLACEHOLDER (LLM ล้ม 5/5) — ต้องกด 🔁 Force สร้างใหม่ หรือแก้ไขด้วยมือก่อน Publish`
+              : `บทความ ${actualWords.toLocaleString()} / ${targetWords.toLocaleString()} คำ (${Math.round(wordRatio * 100)}% ของเป้า) — ต้อง≥80% ถึงจะผ่านเกณฑ์`;
+            stopStream('error', err);
+            setStreamState(s => {
+              const totalH2PlusInParsed = parsed.filter(p => p.headingLevel >= 2).length;
+              const newTotal = Math.max(s.total, countDone, totalH2PlusInParsed);
+              return { phase: 'error', currentIdx: Math.max(0, Math.min(Math.max(0, newTotal - 1), newTotal)), total: newTotal, sectionBodies: parsed.map(x => x.body), errMsg: err };
+            });
+            toast.warning(err);
+          }
         } catch {
-          stopStream('done');
+          stopStream('error', 'Parse progress failed — retry regenerate');
         }
         // H1 FIX: REMOVED unconditional setTimeout(() => setCur(3), 800); → NO MORE AUTO SKIP Step3→4! User must click "ถัดไป" manually ONLY after valid guard check passes.
         toast.success(r.from_existing ? `ใช้ Draft มีอยู่ #${r.draft_id}` : `✅ Draft สร้างสำเร็จ #${r.draft_id}`);
@@ -1484,14 +1538,30 @@ export default function WritePage() {
                     });
                   const allPass = reqs.every(r => r.pass);
                   const totalWords = estimateWordCount(bodyMd || '');
-                  if (!allPass && totalWords < 1000) {
-                    const fail = reqs.filter(r => !r.pass).slice(0, 3).map(r => `${r.heading?.slice(0, 24)} (${r.bodyLen}/${r.minLen})`).join(', ');
-                    toast.error(`เขียนเนื้อหาไม่ครบ! กด "🚀 เริ่มเขียนเนื้อหา Streaming" ก่อน. ล้มเหลว: ${fail || reqs.filter(r=>!r.pass).length + ' sections'}`);
+                  const wordTarget = Math.max(1000, Number(targetWordTotal) || 0);
+                  const ratio = totalWords / Math.max(1, wordTarget);
+                  const hasPlaceholderNow = !!writeHasPlaceholder || /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd || '');
+                  const placeholderBlock = hasPlaceholderNow;
+                  const wordPctBlock = ratio < 0.8;
+                  const oldBlock = !allPass && totalWords < 1000;
+                  if (oldBlock || wordPctBlock || placeholderBlock) {
+                    const errs: string[] = [];
+                    if (oldBlock) {
+                      const fail = reqs.filter(r => !r.pass).slice(0, 3).map(r => `${r.heading?.slice(0, 24)} (${r.bodyLen}/${r.minLen})`).join(', ');
+                      errs.push(fail || `${reqs.filter(r=>!r.pass).length} sections`);
+                    }
+                    if (wordPctBlock) errs.push(`คำ ${totalWords.toLocaleString()}/${wordTarget.toLocaleString()} = ${Math.round(ratio*100)}% ต้อง≥80%`);
+                    if (placeholderBlock) errs.push('มี AUTO PLACEHOLDER section (ต้องกด 🔁 เขียนใหม่ ก่อนถัดไป)');
+                    toast.error(`ผ่านเกณฑ์ไม่ครบ! ${errs.join(' · ')}`);
                     return;
                   }
                 } catch (e: any) {
                   const tw = estimateWordCount(bodyMd || '');
-                  if (tw < 600) { toast.error('เนื้อหายังสั้นเกินไป: กดเริ่มเขียนก่อนกดถัดไป. (' + tw.toLocaleString() + ' คำ)'); return; }
+                  const wt = Math.max(1000, Number(targetWordTotal) || 0);
+                  const hasPH = /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd || '');
+                  const rat = tw / Math.max(1, wt);
+                  if (hasPH) { toast.error('เนื้อหามี AUTO PLACEHOLDER — ต้องแก้ก่อนกดถัดไป'); return; }
+                  if (rat < 0.8 || tw < 600) { toast.error(`เนื้อหายังสั้น: ${tw.toLocaleString()}/${wt.toLocaleString()} คำ = ${Math.round(rat*100)}% (ต้อง≥80%)`); return; }
                 }
               }
               setCur(Math.min(STEPS.length - 1, cur + 1));
@@ -2119,7 +2189,12 @@ export default function WritePage() {
               <div className="flex justify-between text-[12.5px] mb-1.5">
                 <span className="text-stone-600">ความคืบหน้าโดยรวม</span>
                 <b className={streamState.phase === 'done' ? 'text-emerald-700' : streamState.phase === 'error' ? 'text-rose-700' : 'text-amber-700'}>
-                  {streamState.total ? Math.round(((streamState.phase === 'done' ? streamState.total : streamState.currentIdx + (streamState.phase === 'running' ? 0.5 : 0)) / streamState.total) * 100) : 0}%
+                  {(() => {
+                    if (!streamState.total) return 0;
+                    const raw = streamState.phase === 'done' ? 100 : Math.round(((streamState.currentIdx + (streamState.phase === 'running' ? 0.5 : 0)) / streamState.total) * 100);
+                    if (streamState.phase === 'running' || streamState.phase === 'error') return Math.min(90, Math.max(0, raw));
+                    return Math.max(0, Math.min(100, raw));
+                  })()}%
                 </b>
               </div>
               <div className="h-3.5 rounded-full overflow-hidden bg-stone-200/60">
@@ -2127,7 +2202,12 @@ export default function WritePage() {
                   className={`h-full transition-all duration-700 ${
                     streamState.phase === 'done' ? 'bg-emerald-600' : streamState.phase === 'error' ? 'bg-rose-600' : 'bg-amber-500'
                   }`}
-                  style={{ width: `${streamState.total ? Math.min(100, ((streamState.phase === 'done' ? streamState.total : streamState.currentIdx + (streamState.phase === 'running' ? 0.5 : 0)) / streamState.total) * 100) : 0}%` }}
+                  style={{ width: `${(() => {
+                    if (!streamState.total) return 0;
+                    const raw = streamState.phase === 'done' ? 100 : (((streamState.currentIdx + (streamState.phase === 'running' ? 0.5 : 0)) / streamState.total) * 100);
+                    const capped = (streamState.phase === 'running' || streamState.phase === 'error') ? Math.min(90, raw) : raw;
+                    return Math.max(0, Math.min(100, capped));
+                  })()}%` }}
                 />
               </div>
             </div>
@@ -2153,6 +2233,13 @@ export default function WritePage() {
                 ))}
               </div>
               <div className="mt-2 flex items-center justify-between text-[11px] text-stone-500 px-1 flex-wrap gap-2">
+                {(() => {
+                  const wcActual = estimateWordCount(bodyMd || '');
+                  const wcTarget = Math.max(1000, Number(targetWordTotal) || 0);
+                  const wcPct = Math.max(0, Math.round(100 * wcActual / Math.max(1, wcTarget)));
+                  const wcColor = wcPct >= 80 ? '#047857' : wcPct >= 60 ? '#92400e' : '#991b1b';
+                  return <span style={{color: wcColor, fontWeight: 700}}>📄 คำจริง/เป้า: <b>{wcActual.toLocaleString()}/{wcTarget.toLocaleString()}</b> ({wcPct}%) {wcPct<80?'· ต้อง≥80%':'✓'}</span>;
+                })()}
                 <span>รวม Keyword ทุกชนิดในบทความ: <b className="text-stone-700">{kwTotalDemo.toLocaleString()} ครั้ง</b> / เป้าหมาย {keywordPlan.ceilingTotal} ครั้ง (เพดาน {TARGET_DENSITY_PCT}% = {ceilingMax})</span>
                 <span style={{color: keywordPlan.mainDensityLevel==='red' ? '#991b1b' : keywordPlan.mainDensityLevel==='yellow' ? '#92400e' : '#075985', fontWeight:700}}>
                   🔑 คีย์หลักปรากฏจริงรวม <b>{keywordPlan.mainAppearsTotal} ครั้ง ({keywordPlan.mainDensityPct.toFixed(2)}%)</b> (เดี่ยวๆ {keywordPlan.targetMainEach} + ใน LT {keywordPlan.mainInLongtail})
@@ -2174,36 +2261,48 @@ export default function WritePage() {
                 const lvLabel = `H${sec.heading_level}`;
                 const bgCol = (sec.heading_level === 2 ? '#fef3c7' : sec.heading_level === 3 ? '#e0f2fe' : '#f5f5f4');
                 const bdCol = (sec.heading_level === 2 ? '#fde68a' : sec.heading_level === 3 ? '#bae6fd' : '#e7e5e4');
+                const phRegex = /\[AUTO PLACEHOLDER\s*[—\-]/;
+                const secRawRaw = bodyMd.split(`## ${secTitle}`)[1]?.split(/^## |^### /m)[0]?.trim() || '';
+                const isSecPlaceholder = isDone && phRegex.test(secRawRaw);
+                const secFinalDone = isDone && !isSecPlaceholder;
                 return (
                   <div
                     key={`write-sec-${idx}`}
                     className={`border rounded-xl overflow-hidden ${
-                      isWriting ? "border-amber-300 shadow-sm shadow-amber-100" : isDone ? "border-emerald-200" : "border-stone-200"
+                      isWriting ? "border-amber-300 shadow-sm shadow-amber-100" : isSecPlaceholder ? "border-rose-300 shadow-sm shadow-rose-100" : secFinalDone ? "border-emerald-200" : "border-stone-200"
                     }`}
                   >
                     <div
                       className={`p-3 flex items-center justify-between border-b text-sm ${
                         isWriting
                           ? "bg-amber-50 border-amber-200 text-amber-900"
-                          : isDone
-                            ? "bg-emerald-50 border-emerald-100"
-                            : "bg-stone-50 border-stone-200 text-stone-500"
+                          : isSecPlaceholder
+                            ? "bg-rose-50 border-rose-200 text-rose-900"
+                            : secFinalDone
+                              ? "bg-emerald-50 border-emerald-100"
+                              : "bg-stone-50 border-stone-200 text-stone-500"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="px-2 py-0.5 text-[10.5px] font-bold rounded text-stone-800" style={{ backgroundColor: bgCol, border: `1px solid ${bdCol}` }}>{lvLabel}</span>
                         <b className="truncate">{secTitle}</b>
+                        {isSecPlaceholder && (
+                          <span className="px-2 py-0.5 text-[10.5px] font-bold rounded bg-rose-600 text-white border border-rose-700">
+                            🔴 ต้องเขียนใหม่ · Placeholder
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <span className="text-[11.5px] text-stone-500 hidden md:inline">เป้าหมาย ≥{sec.word_target_min} คำ</span>
                         <span>
-                          {isDone && <span className="text-emerald-700 font-semibold">✓ เสร็จ</span>}
+                          {secFinalDone && <span className="text-emerald-700 font-semibold">✓ เสร็จ</span>}
+                          {isSecPlaceholder && <span className="text-rose-700 font-semibold">✗ ต้องแก้</span>}
                           {isWriting && (
                             <span className="flex items-center gap-1">
                               <Loader2 className="size-3 mr-1 animate-spin" /> กำลังเขียน...
                             </span>
                           )}
-                          {!isDone && !isWriting && <span>รอคิว #{idx + 1}</span>}
+                          {!secFinalDone && !isSecPlaceholder && !isWriting && <span>รอคิว #{idx + 1}</span>}
                         </span>
                       </div>
                     </div>
@@ -2632,6 +2731,13 @@ export default function WritePage() {
                     ))}
                   </div>
                   <div className="mt-2 flex items-center justify-between text-[11px] text-stone-500 px-1 flex-wrap gap-2">
+                    {(() => {
+                      const wcActual = estimateWordCount(bodyMd || '');
+                      const wcTarget = Math.max(1000, Number(targetWordTotal) || 0);
+                      const wcPct = Math.max(0, Math.round(100 * wcActual / Math.max(1, wcTarget)));
+                      const wcColor = wcPct >= 80 ? '#047857' : wcPct >= 60 ? '#92400e' : '#991b1b';
+                      return <span style={{color: wcColor, fontWeight: 700}}>📄 คำจริง/เป้า: <b>{wcActual.toLocaleString()}/{wcTarget.toLocaleString()}</b> ({wcPct}%) {wcPct<80?'· ต้อง≥80%':'✓'}</span>;
+                    })()}
                     <span>รวม Keyword ทุกชนิดในบทความ: <b className="text-stone-700">{kwTotalDemo.toLocaleString()} ครั้ง</b> / เป้าหมาย {keywordPlan.ceilingTotal} ครั้ง (เพดาน {TARGET_DENSITY_PCT}% = {ceilingMax})</span>
                     <span style={{color: keywordPlan.mainDensityLevel==='red' ? '#991b1b' : keywordPlan.mainDensityLevel==='yellow' ? '#92400e' : '#075985', fontWeight:700}}>
                       🔑 คีย์หลักปรากฏจริงรวม <b>{keywordPlan.mainAppearsTotal} ครั้ง ({keywordPlan.mainDensityPct.toFixed(2)}%)</b>
@@ -2714,7 +2820,7 @@ export default function WritePage() {
                 <Button
                   className="!bg-amber-700 hover:!bg-amber-800"
                   onClick={() => doPublish(false)}
-                  disabled={publishMut.isPending || !draftId}
+                  disabled={publishMut.isPending || !draftId || writeHasPlaceholder || /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd||'') || (estimateWordCount(bodyMd||'') / Math.max(1, Math.max(1000, Number(targetWordTotal)||0)) < 0.8)}
                 >
                   {publishMut.isPending
                     ? <><Loader2 className="size-4 mr-2 animate-spin" />กำลังเผยแพร่…</>
@@ -2723,7 +2829,7 @@ export default function WritePage() {
                 <Button
                   variant="outline"
                   onClick={() => doPublish(true)}
-                  disabled={publishMut.isPending || !draftId}
+                  disabled={publishMut.isPending || !draftId || writeHasPlaceholder || /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd||'') || (estimateWordCount(bodyMd||'') / Math.max(1, Math.max(1000, Number(targetWordTotal)||0)) < 0.8)}
                 >
                   🔒 เลิกเผยแพร่
                 </Button>

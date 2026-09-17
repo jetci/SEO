@@ -2,6 +2,7 @@
 // G0.7 A-B: สร้างทีม / แสดงทีม / เพิ่มสมาชิก / เปลี่ยน permission สมาชิก
 import { z } from 'zod';
 import { router } from '../_core/trpc.js';
+import { IS_DEV } from '../_core/env.js';
 import { protectedProcedure, adminProcedure, TRPCError } from '../_core/middleware/rbac.js';
 import { db } from '../../db/index.js';
 import { teams, teamMembers, users } from '../../db/schema.js';
@@ -21,7 +22,7 @@ export const teamsRouter = router({
       description: z.string().max(2048).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const openId = ctx.session.openId;
+      const openId = ctx.session!.openId;
       let ownerId: number;
 
       try {
@@ -29,7 +30,7 @@ export const teamsRouter = router({
         if (found.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found. Please sign in first.' });
         ownerId = found[0].id;
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') {
+        if (IS_DEV) {
           ownerId = 1;
           console.warn('[teams.create] DB unavailable, using fallback ownerId=1');
         } else {
@@ -56,7 +57,7 @@ export const teamsRouter = router({
         const [newTeam] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
         return { ok: true, team: newTeam, ownerId };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') {
+        if (IS_DEV) {
           console.warn('[teams.create] DB insert skipped, returning mock:', e?.message ?? String(e).slice(0, 100));
           const mockTeamId = Date.now();
           return {
@@ -84,7 +85,7 @@ export const teamsRouter = router({
    * Returns: array of teams + user's permission in each team
    */
   list: protectedProcedure.query(async ({ ctx }) => {
-    const openId = ctx.session.openId;
+    const openId = ctx.session!.openId;
     let userId: number;
     try {
       const found = await db.select({ id: users.id }).from(users).where(eq(users.googleOpenId, openId)).limit(1);
@@ -101,7 +102,7 @@ export const teamsRouter = router({
       });
       return { ok: true, teams: withPerm };
     } catch (e: any) {
-      if (process.env.NODE_ENV === 'development') {
+      if (IS_DEV) {
         console.warn('[teams.list] DB unavailable, returning mock:', e?.message ?? String(e).slice(0, 100));
         return {
           ok: true,
@@ -134,7 +135,7 @@ export const teamsRouter = router({
       permission: z.enum(TEAM_PERMS as unknown as [string, ...string[]]).default('member'),
     }))
     .mutation(async ({ ctx, input }) => {
-      const openId = ctx.session.openId;
+      const openId = ctx.session!.openId;
       let userId: number;
       try {
         const found = await db.select({ id: users.id }).from(users).where(eq(users.googleOpenId, openId)).limit(1);
@@ -165,7 +166,7 @@ export const teamsRouter = router({
         });
         return { ok: true, added: true, teamMemberId: Number(inserted[0]?.insertId ?? inserted.insertId ?? (inserted as any)?.insertId ?? Date.now()) };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development' && e?.code !== 'FORBIDDEN' && e?.code !== 'NOT_FOUND') {
+        if (IS_DEV && e?.code !== 'FORBIDDEN' && e?.code !== 'NOT_FOUND') {
           console.warn('[teams.addMember] DB skipped, mock success:', e?.message ?? String(e).slice(0, 100));
           return { ok: true, added: true, teamMemberId: Date.now(), mock: true };
         }
@@ -185,7 +186,7 @@ export const teamsRouter = router({
       permission: z.enum(TEAM_PERMS as unknown as [string, ...string[]]),
     }))
     .mutation(async ({ ctx, input }) => {
-      const openId = ctx.session.openId;
+      const openId = ctx.session!.openId;
       try {
         const found = await db.select({ id: users.id }).from(users).where(eq(users.googleOpenId, openId)).limit(1);
         if (found.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found.' });
@@ -208,7 +209,7 @@ export const teamsRouter = router({
           .where(and(eq(teamMembers.teamId, input.teamId), eq(teamMembers.userId, input.targetUserId)));
         return { ok: true, affected: Number(updated[0]?.affectedRows ?? updated.affectedRows ?? (updated as any)?.[0]?.affectedRows ?? 0) };
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development' && e?.code !== 'FORBIDDEN' && e?.code !== 'NOT_FOUND' && e?.code !== 'BAD_REQUEST') {
+        if (IS_DEV && e?.code !== 'FORBIDDEN' && e?.code !== 'NOT_FOUND' && e?.code !== 'BAD_REQUEST') {
           console.warn('[teams.changePermission] DB skipped, mock success:', e?.message ?? String(e).slice(0, 100));
           return { ok: true, affected: 1, mock: true };
         }

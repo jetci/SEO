@@ -54,7 +54,7 @@ export class LlmService {
     this.ctx = ctx;
   }
 
-  static async forContext(ctx: ProtectedCtx): Promise<LlmService> {
+  static async forContext(ctx: any): Promise<LlmService> {
     const s = await resolveTeamSettings(ctx);
     return new LlmService(s, ctx);
   }
@@ -114,6 +114,12 @@ export class LlmService {
       const res = await fetch(url, { method:'POST', headers, body: JSON.stringify(body), signal: ac.signal });
       const text = await res.text();
       if (res.status === 401 || res.status === 403) throw new Error(`[LLM_AUTH_INVALID_${provider.toUpperCase()}] HTTP ${res.status}`);
+      if (res.status === 402) throw new Error(`[LLM_CREDIT_EXHAUSTED_${provider.toUpperCase()}] HTTP 402 — LLM API key credit/billing exhausted.`);
+      if (res.status === 429) {
+        const retryAfter = res.headers.get('Retry-After') || res.headers.get('retry-after') || '';
+        const secs = Number(retryAfter) || 0;
+        throw new Error(`[LLM_RATE_LIMIT_${provider.toUpperCase()}] HTTP 429${secs > 0 ? ` (Retry-After ${secs}s)` : ''} — slow down or upgrade rate limit tier.`);
+      }
       if (res.status >= 500) throw new Error(`[LLM_UPSTREAM_${provider.toUpperCase()}] HTTP ${res.status}: ${text.slice(0, 200)}`);
       let json: any;
       try { json = JSON.parse(text); } catch { throw new Error(`[LLM_JSON_PARSE_${provider}] upstream body not JSON. Snippet: ${text.slice(0, 200)}`); }
@@ -149,6 +155,7 @@ export class LlmService {
     const timeoutMs = inOpts.timeoutMs ?? 60000;
     const endpointName = inOpts.jsonMode ? 'chat.structured' : 'chat.raw';
     const MAX_ATTEMPTS = 2;
+    const jitter = (baseMs: number): number => Math.max(100, Math.round(baseMs * (0.7 + Math.random() * 0.6)));
     let lastErr: any = null;
     for (let attempt = 0; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
@@ -169,8 +176,16 @@ export class LlmService {
         return { text: r.raw, usage: r.usage, model: r.model };
       } catch (e: any) {
         lastErr = e;
+        const msg = String(e?.message ?? '');
+        const isAuth = msg.startsWith('[LLM_AUTH_INVALID_');
+        const isCredit = msg.startsWith('[LLM_CREDIT_EXHAUSTED_');
+        const isRate = msg.startsWith('[LLM_RATE_LIMIT_');
+        const isUpstream = msg.startsWith('[LLM_UPSTREAM_');
+        // CT-01: Hard fail types NO RETRY EVER (waste attempt slots)
+        if (isAuth || isCredit) break;
         if (attempt < MAX_ATTEMPTS) {
-          const backoff = 1000 * Math.pow(2, attempt);
+          const base = isRate ? (2000 * Math.pow(2, attempt + 1)) : (1000 * Math.pow(2, attempt));
+          const backoff = jitter(base);
           await new Promise(res => setTimeout(res, backoff));
           continue;
         }
