@@ -27,7 +27,7 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  // Group "วางแผนและเขียนบทความ" — SA 5-step Write Workflow (from mockup_write_5steps.html + reference_openseo_sam)
+  // Group "วางแผนและเขียนบทความ" — SA 7-Step Write Pipeline Blueprint (L30 old 5-step updated)
   { key: "overview", href: "/",               label: "ภาพรวมระบบ",          icon: <LayoutDashboard className="size-4" />, group: "plan", core: true },
   { key: "projects", href: "/projects",      label: "โปรเจกต์บทความ",     icon: <FolderKanban className="size-4" />,  badge: "7", group: "plan", core: true },
   { key: "kcp",      href: "/kcp",           label: "Keyword Cluster Planner", icon: <Puzzle className="size-4" />, group: "plan", core: true },

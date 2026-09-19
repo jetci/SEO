@@ -287,6 +287,7 @@ export const settingsRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
     try {
       const teamId = await resolveTeamIdForSettings(ctx);
+      await assertTeamAccess(ctx, teamId, { minRole: 'member' }, TRPCError);
       const map = await loadSettingsForTeam(teamId);
       const dec = (k: string) => map.has(k) ? safeDecrypt(map.get(k)!).val : '';
       const extra = readExtra(map);
@@ -316,7 +317,7 @@ export const settingsRouter = router({
     }
   }),
 
-  save: adminProcedure
+  save: protectedProcedure
     .input(z.object({
       teamId: z.coerce.number().int().positive().optional(),
       llmProvider: z.enum(LLM_PROVIDERS).default('openrouter'),
@@ -418,7 +419,7 @@ export const settingsRouter = router({
       }
     }),
 
-  resetKey: adminProcedure
+  resetKey: protectedProcedure
     .input(z.object({ teamId: z.coerce.number().int().positive().optional(), keyType: z.enum(['llm','serp']) }))
     .mutation(async ({ input, ctx }) => {
       let teamId = input.teamId;
@@ -431,11 +432,12 @@ export const settingsRouter = router({
       return { ok: true, deleted: deletes, teamId };
     }),
 
-  getBillingWindow: adminProcedure
+  getBillingWindow: protectedProcedure
     .input(z.object({ month: z.coerce.number().int().min(1).max(12), year: z.coerce.number().int().min(2024).max(2099) }))
     .query(async ({ input, ctx }) => {
       let teamId: number|undefined;
       try { teamId = await resolveTeamIdForSettings(ctx); } catch { throw new TRPCError({ code: 'FORBIDDEN', message: 'Team required.' }); }
+      await assertTeamAccess(ctx, teamId, { minRole: 'admin' }, TRPCError);
       // Pull rows, group in JS to avoid strict date SQL compat
       const rows = await db.select().from(researchAudit).where(eq(researchAudit.teamId, teamId));
       const inMonth = rows.filter(r => {
@@ -461,7 +463,7 @@ export const settingsRouter = router({
       };
     }),
 
-  pingCurrent: adminProcedure
+  pingCurrent: protectedProcedure
     .input(z.object({ teamId: z.coerce.number().int().positive().optional(), kind: z.enum(['llm','serp','both']).default('both') }))
     .query(async ({ input, ctx }) => {
       let teamId = input.teamId;

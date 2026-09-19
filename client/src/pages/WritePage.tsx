@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
-  Search, CheckCircle2, Sparkles, BookCheck, Eye, Save, AlertTriangle,
+  Search, CheckCircle2, Sparkles, BookCheck, Eye, Save, AlertTriangle, ShieldCheck,
   FileDown, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, FileText, Type, ListOrdered,
   RefreshCw, Hash, Target, Loader2, Wand2, Plus, Minus, GripVertical,
   CalendarDays, Clock, X, Trash2, FileType, CheckCircle2 as CheckCircle2Icon,
@@ -259,6 +259,8 @@ export default function WritePage() {
   // ── STATE init + auto-fill from KCP query params / getDraft ──
   const [keyword, setKeywordRaw] = useState("");
   const setKeyword = (v: string) => { setKeywordRaw(v); scheduleAutoSave(); };
+  const [h1, setH1Raw] = useState("");
+  const setH1 = (v: string) => { setH1Raw(v); scheduleAutoSave(); };
   const [category, setCategoryRaw] = useState<"ฟุตบอล" | "มวย" | "คาสิโน (YMYL)">("ฟุตบอล");
   const setCategory = (v: any) => { setCategoryRaw(v); scheduleAutoSave(); };
   const [intent, setIntentRaw] = useState<"Informational" | "Transactional" | "Commercial">("Informational");
@@ -350,11 +352,13 @@ export default function WritePage() {
       const d: any = (q.data as any).draft;
       const wf: any = (q.data as any).workflow;
       const title = String(d.title || "").trim();
-      // CRITICAL FIX: NEVER overwrite keyword if cluster_context (KCP focus) already filled it (filledOnceRef.current.kw = true)
-      // Prevents: Step1 keyword = BE generated 2569-ch draft.title instead of actual KCP focus_keyword.keyword (ticket bug screenshot)
-      if (title && !keyword.trim() && !filledOnceRef.current.kw) {
-        setKeywordRaw(title.slice(0, 200));
+      // WO-H1-2569-001 TASK 3.2 FIX #1/4: Title (H1) NEVER goes into Keyword field
+      // Step1 keyword = FOCUS KEYWORD from KCP ONLY. H1 = separate h1 state.
+      if (title && !h1.trim()) {
+        setH1(title.slice(0, 512));
       }
+      // Legacy guard (do NOT overwrite keyword with H1 title, ever again!):
+      // if (title && !keyword.trim() && !filledOnceRef.current.kw) { setKeywordRaw(title.slice(0, 200)); } ← DEPRECATED BUG REMOVED
       const md = String(d.content || "").trim();
       if (md && !bodyMd.trim()) {
         setBodyMd(md);
@@ -363,7 +367,7 @@ export default function WritePage() {
         for (const hline of hx) {
           const lv = hline.startsWith('###### ') ? 6 : hline.startsWith('##### ') ? 5 : hline.startsWith('#### ') ? 4 : hline.startsWith('### ') ? 3 : hline.startsWith('## ') ? 2 : 1;
           const text = hline.replace(/^#+\s+/, '').trim().slice(0, 240);
-          if (text && lv >= 1 && lv <= 6) headingRows.push({ heading_level: lv as any, heading_text: text, word_target_min: lv === 2 ? 250 : lv === 3 ? 120 : 60, key_points: generateBulletsForHeading(text, lv) });
+          if (text && lv >= 1 && lv <= 6) headingRows.push({ heading_level: lv as any, heading_text: text, word_target_min: lv === 2 ? 250 : lv === 3 ? 120 : 60, word_target_max: lv === 2 ? 350 : lv === 3 ? 220 : 160, key_points: generateBulletsForHeading(text, lv) });
         }
         const safeRows = sanitizeOutlineRows(headingRows);
         if (safeRows.length >= 2) setOutlineSecs(safeRows);
@@ -398,9 +402,10 @@ export default function WritePage() {
       return;
     }
     if (!force && saveMut.isPending) return;
+    const effectiveTitle = (h1 && h1.trim().length >= 2) ? h1.trim() : (keyword || undefined);
     saveMut.mutate({
       draftId,
-      title: keyword || undefined,
+      title: effectiveTitle,
       content: bodyMd || undefined,
       metaTitle: mt || null,
       metaDescription: mdes || null,
@@ -434,6 +439,13 @@ export default function WritePage() {
     }
     if (wcRatio < 0.8) {
       toast.error(`🚫 จำนวนคำไม่ถึงเกณฑ์ 80% (${wcActual.toLocaleString()}/${wcTarget.toLocaleString()} = ${Math.round(100*wcRatio)}%) — ต้องเขียนให้ครบก่อน`);
+      return;
+    }
+    const seoComp = (window as any).__seoCompliance;
+    if (seoComp && !!seoComp.anyHardBlock) {
+      const cc = Number(seoComp.combinedPct || 0);
+      const crit = Number(seoComp.globalCrit || 0) + Number(seoComp.critCount || 0);
+      toast.error(`🚫 SEO Gate FAIL: ${cc}% < 75% หรือมี Critical ${crit} อย่าง (ต้องแก้ก่อน Publish · กลับไป Step 6 Audit)`);
       return;
     }
     await doSave(true, true);
@@ -481,7 +493,7 @@ export default function WritePage() {
     });
   }
 
-  type OutlineRow = { heading_level: 1 | 2 | 3 | 4 | 5 | 6; heading_text: string; word_target_min: number; key_points: string[] };
+  type OutlineRow = { heading_level: 1 | 2 | 3 | 4 | 5 | 6; heading_text: string; word_target_min: number; word_target_max: number; key_points: string[] };
 
   const FE_OUTLINE_BANNED_SUBSTRINGS: string[] = [
     '(Definition)','(Why / Causes)','(How-to Guide)','(Comparison / Case Study)','(Key Takeaways)','(ปิดท้ายบทความ)','ขั้นตอน 1-3: เตรียมความพร้อม','เตรียมความพร้อม → ดำเนินการ → ตรวจสอบผลลัพธ์','ข้อผิดพลาดที่พบบ่อย','คำจำกัดความและประเภทของ','คืออะไร? — บทนำและบริบท','สาเหตุและปัจจัยสำคัญของ','วิธีทำ / คู่มือปฏิบัติ','กับทางเลือกอื่น','แหล่งอ้างอิงและข้อมูลยืนยัน','สรุปและคำแนะนำที่สำคัญ',
@@ -590,7 +602,7 @@ export default function WritePage() {
       for (const hline of hx) {
         const lv = hline.startsWith('### ') ? 3 : hline.startsWith('## ') ? 2 : 1;
         const text = hline.replace(/^#+\s+/, '').trim().slice(0, 240);
-        if (text) headings.push({ heading_level: lv as any, heading_text: text, word_target_min: lv===2?200:120, key_points: generateBulletsForHeading(text, lv) });
+        if (text) headings.push({ heading_level: lv as any, heading_text: text, word_target_min: lv===2?200:120, word_target_max: lv===2?350:220, key_points: generateBulletsForHeading(text, lv) });
       }
 
       // --- Extract EEAT Signals -> sources: external URLs + author + studies
@@ -615,10 +627,10 @@ export default function WritePage() {
       // FAQ heading detection
       const faqMatch = /(คำถามที่พบบ่อย|FAQ\b|Frequently Asked)/i.test(html);
 
-      // --- Auto-fill Keyword from first H1 if still empty after extraction + still ""
+      // --- Auto-fill H1 from first heading in extracted DOCX/HTML markdown if still empty
       const firstH1 = headings.find(h=>h.heading_level===1)?.heading_text ?? '';
-      if (firstH1 && !keyword.trim()) {
-        setKeyword(firstH1.slice(0, 180));
+      if (firstH1 && !h1.trim()) {
+        setH1(firstH1.slice(0, 512));
       }
 
       const finalMd = injectYmylIfNeeded(md, category);
@@ -821,7 +833,9 @@ export default function WritePage() {
         if (r?.ok && Array.isArray(r.outline?.sections)) {
           const safeSections = sanitizeOutlineRows(r.outline.sections);
           setOutlineSecs(safeSections);
-          if (r.outline?.title) setKeyword(r.outline.title.slice(0,200));
+          // WO-H1-2569-001 TASK 3.2 FIX #3/4: Outline.title => H1 FIELD (NOT keyword)
+          const outlineH1 = safeSections.find(s => s.heading_level === 1)?.heading_text || r.outline?.title;
+          if (outlineH1 && !h1.trim()) setH1(String(outlineH1).slice(0, 512));
           toast.success(`✅ AI สร้าง Outline H1-H6 เสร็จ (${safeSections.length} sections)${r.persisted ? ' + บันทึกใน draft DB' : ''}`);
         } else toast.error((r?.message || 'gen outline fail').slice(0,120));
       },
@@ -829,7 +843,7 @@ export default function WritePage() {
     });
   }
   function addOutlineRow(level: OutlineRow["heading_level"] = 2) {
-    setOutlineSecs(prev => [...prev, { heading_level: level, heading_text: 'หัวข้อใหม่', word_target_min: level === 2 ? 200 : 120, key_points: generateBulletsForHeading('หัวข้อใหม่', level) }]);
+    setOutlineSecs(prev => [...prev, { heading_level: level, heading_text: 'หัวข้อใหม่', word_target_min: level === 2 ? 200 : 120, word_target_max: level === 2 ? 350 : 220, key_points: generateBulletsForHeading('หัวข้อใหม่', level) }]);
   }
   function setOutlineText(idx:number,v:string){ const n=[...outlineSecs]; n[idx]={...n[idx],heading_text:v}; setOutlineSecs(n); dirtyRef.current=true; scheduleAutoSave(); }
   function setOutlineLevel(idx:number, lv:number){ const n=[...outlineSecs]; n[idx]={...n[idx], heading_level: Math.max(1,Math.min(6,Number(lv))) as any}; setOutlineSecs(n); dirtyRef.current=true; scheduleAutoSave(); }
@@ -1093,12 +1107,181 @@ export default function WritePage() {
     return parts.join('\n\n') + '\n';
   }
 
+  let _thSeg: Intl.Segmenter | null = null;
   function estimateWordCount(text: string): number {
     const t = text || '';
     if (!t.length) return 0;
     const en = (t.match(/[A-Za-z0-9][A-Za-z0-9'-]*/g)?.length ?? 0);
-    const thai = (t.match(/[\u0E00-\u0E7F]/g)?.length ?? 0);
-    return en + Math.ceil(thai / 3);
+    const thaiStr = (t.match(/[\u0E00-\u0E7F][\u0E00-\u0E7F\s]*/g) || []).join(' ');
+    let thaiW = 0;
+    if (thaiStr.length > 0) {
+      try {
+        if (typeof Intl !== 'undefined' && typeof (Intl as any).Segmenter !== 'undefined') {
+          if (!_thSeg) _thSeg = new (Intl as any).Segmenter('th-TH', { granularity: 'word' });
+          const segList = [...(_thSeg as any).segment(thaiStr)];
+          thaiW = segList.filter((s: any) => s.isWordLike === true).length;
+        } else {
+          const thai = (t.match(/[\u0E00-\u0E7F]/g)?.length ?? 0);
+          thaiW = Math.ceil(thai / 5);
+        }
+      } catch {
+        const thai = (t.match(/[\u0E00-\u0E7F]/g)?.length ?? 0);
+        thaiW = Math.ceil(thai / 5);
+      }
+    }
+    return en + thaiW;
+  }
+
+  function countCharsNoSpaces(text: string): number {
+    const t = text || '';
+    if (!t.length) return 0;
+    return t.replace(/\s+/g, '').length;
+  }
+
+  function countParagraphs(text: string): number {
+    const t = String(text || '').trim();
+    if (!t.length) return 0;
+    const parts = t.split(/\n\s*\n+/).filter(p => p.trim().length > 0);
+    if (parts.length > 0) return parts.length;
+    return t.length > 0 ? 1 : 0;
+  }
+
+  function countSentences(paragraph: string): number {
+    const p = String(paragraph || '').trim();
+    if (!p.length) return 0;
+    const thaiStops = (p.match(/[.!?。！？\u0E46]/g)?.length ?? 0);
+    return Math.max(1, thaiStops || Math.max(1, Math.ceil(p.length / 80)));
+  }
+
+  function firstNWords(text: string, n: number): string {
+    const words = String(text || '').split(/\s+/).slice(0, n);
+    return words.join(' ');
+  }
+
+  function hasKeywordOrLSI(text: string, mainKeyword: string, extraLSI: string[] = []): boolean {
+    const t = String(text || '').toLowerCase();
+    const kw = String(mainKeyword || '').toLowerCase().trim();
+    if (kw && kw.length >= 2 && t.includes(kw)) return true;
+    for (const lsi of extraLSI) {
+      const l = String(lsi || '').toLowerCase().trim();
+      if (l && l.length >= 2 && t.includes(l)) return true;
+    }
+    return false;
+  }
+
+  type SectionMetric = { pass: boolean; critical: boolean; label: string; detail: string; color: string };
+  type SectionCompliance = {
+    sectionIdx: number;
+    heading: string;
+    headingLevel: number;
+    wc: number;
+    wcTargetMin: number;
+    wcTargetMax: number;
+    paras: number;
+    sentencesPerPara: number[];
+    metrics: SectionMetric[];
+    passCount: number;
+    total: number;
+    pct: number;
+    anyCritical: boolean;
+  };
+
+  function computeSectionCompliance(sections: ReturnType<typeof parseBodyMdIntoSections>, outline: OutlineRow[], mainKeyword: string, extraLSI: string[] = []): SectionCompliance[] {
+    return sections.map((sec, idx): SectionCompliance => {
+      const content = String(sec.body || '').trim();
+      const wc = estimateWordCount(content);
+      const parasArr = content.split(/\n\s*\n+/).filter(p => p.trim().length > 0);
+      const paras = Math.max(0, parasArr.length || (content.length > 0 ? 1 : 0));
+      const sentencesPerPara = parasArr.map(p => countSentences(p));
+      const avgSent = sentencesPerPara.length ? sentencesPerPara.reduce((a,b)=>a+b,0)/sentencesPerPara.length : 0;
+      const outlineRow = outline.find(o => o.heading_text && sec.heading && (String(o.heading_text).trim() === String(sec.heading).trim() || String(sec.heading).includes(String(o.heading_text).trim().slice(0, 10))));
+      const wcMin = Number(outlineRow?.word_target_min || (sec.headingLevel === 2 ? 150 : sec.headingLevel === 3 ? 120 : 100));
+      const wcMax = Number(outlineRow?.word_target_max || (sec.headingLevel === 2 ? 350 : sec.headingLevel === 3 ? 220 : 260));
+      const first100 = firstNWords(content, 100);
+      const metrics: SectionMetric[] = [];
+      // M1: Section Word Count 150-350 (G4/S4 MIN-MAX)
+      {
+        const pass = wc >= 150 && wc <= wcMax;
+        const critical = wc >= 400 || wc < 100;
+        const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+        const detail = `${wc.toLocaleString()} คำ · เป้าหมาย 150–${wcMax.toLocaleString()} (${wc<150?'⚠️ สั้นเกินไป':wc>wcMax?wc>=400?'🔴 เกิน 400 ต้องแบ่ง H3':'🟡 ใกล้ MAX → bullets':'✅ พอดี'})`;
+        metrics.push({ pass, critical, label: '📏 ความยาว Section', detail, color });
+      }
+      // M2: Paragraphs 2-4 (S1)
+      {
+        const pass = paras >= 2 && paras <= 4;
+        const critical = paras === 0 || paras >= 7;
+        const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+        const detail = `${paras} ย่อหน้า · เป้าหมาย 2–4 (${paras<2?'⚠️ ย่อหน้าน้อยเกินไป (Wall of Text)':paras>4?'🟡 ย่อหน้ามากเกิน':'✅ 2-4 ย่อหน้าพอดี'})`;
+        metrics.push({ pass, critical, label: '📄 จำนวนย่อหน้า', detail, color });
+      }
+      // M3: Sentences per paragraph 2-4 avg (S2)
+      {
+        const pass = paras === 0 ? false : (avgSent >= 2 && avgSent <= 4.5);
+        const critical = paras === 0 || avgSent >= 7;
+        const color = !paras ? '#991b1b' : pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+        const detail = `${paras>0 ? sentencesPerPara.map(n=>`${n} ประโยค`).join(' / ') : 'ไม่มีย่อหน้า'} · เฉลี่ย ${avgSent.toFixed(1)} ประโยค/ย่อหน้า (เป้าหมาย 2–4)`;
+        metrics.push({ pass, critical, label: '✍️ ประโยคต่อย่อหน้า', detail, color });
+      }
+      // M4: First 100 words มี Keyword/ LSI (K2 Rule)
+      {
+        const ok = content.length > 0 && hasKeywordOrLSI(first100, mainKeyword, extraLSI);
+        const pass = !!ok;
+        const critical = content.length >= 100 && !pass; // ถ้ายาวแล้วยังไม่มี = Critical
+        const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+        const detail = pass ? '✅ มี Focus/LSI ใน 100 คำแรก' : critical ? '🔴 100 คำแรกยังไม่มี Keyword/LSI (Rule K2)' : '🟡 ยาวน้อยเกินไป — ตรวจภายหลัง';
+        metrics.push({ pass, critical, label: '🔑 Keyword 100 คำแรก', detail, color });
+      }
+      // M5: Heading มี Focus Keyword / LSI (Rule K1 + H2 มี keyword)
+      {
+        const ok = sec.headingLevel === 1 ? true : hasKeywordOrLSI(String(sec.heading || ''), mainKeyword, extraLSI);
+        const pass = !!ok;
+        const critical = (sec.headingLevel === 1 || sec.headingLevel === 2) && !pass; // H1/H2 ไม่มี = Critical K1
+        const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+        const detail = pass ? '✅ Heading มี Focus/LSI keyword' : critical ? `🔴 H${sec.headingLevel} "${sec.heading?.slice(0,40)}" ไม่มี Keyword (Rule K1)` : '🟡 H3 ขึ้นไป — แนะนำใส่ synonym';
+        metrics.push({ pass, critical, label: '🏷️ Heading Keyword', detail, color });
+      }
+      // M6: Citation + Anchor Text ต่อ Section (C1/C2 Rule — ตัวเลข 2+ หลักต้องมีอ้างอิง, Anchor ห้าม "คลิกที่นี่" ฯลฯ)
+      {
+        const digitMatches = content.match(/\d{2,}/g) || [];
+        const citeTokens = (content.match(/\[CITE\d+\]/gi) || []).length;
+        const secExtLinks = (content.match(/\[[^\]]*\]\(https?:\/\//g) || []).length;
+        const totalCites = citeTokens + secExtLinks;
+        const badAnchorMatches = content.match(/\[(คลิกที่นี่|ที่นี่|อ่านต่อ|click here|here)\]\(/gi) || [];
+        const rawUrlAnchor = content.match(/\[(https?:\/\/[^\]]*)\]\(/gi) || [];
+        const badAnchorCount = badAnchorMatches.length + rawUrlAnchor.length;
+        let pass = true;
+        let critical = false;
+        if (digitMatches.length >= 2 && totalCites === 0) {
+          pass = false;
+        }
+        if (digitMatches.length >= 3 && totalCites === 0) {
+          critical = true;
+        }
+        if (badAnchorCount > 0) {
+          pass = false;
+          critical = true;
+        }
+        const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+        const citeSuffix = digitMatches.length>=3 && totalCites===0
+          ? ' 🔴 ไม่มี Citation (Crit)'
+          : digitMatches.length>=2 && totalCites===0
+            ? ' 🟡 แนะนำอ้างอิง'
+            : '';
+        const statPart = digitMatches.length > 0
+          ? `ตัวเลข ${digitMatches.length} กลุ่ม · อ้างอิง ${totalCites} จุด${citeSuffix}`
+          : 'ไม่มีตัวเลขสถิติ';
+        const anchorPart = badAnchorCount === 0
+          ? 'Anchor Text OK'
+          : `Anchor ไม่ดี ${badAnchorCount} จุด 🔴 Publish Block`;
+        const detail = `${statPart} · ${anchorPart}`;
+        metrics.push({ pass, critical, label: '📖 M6 Citation + Anchor Text ส่วนนี้', detail, color });
+      }
+      const passCount = metrics.filter(m => m.pass).length;
+      const anyCritical = metrics.some(m => m.critical);
+      const pct = Math.round((passCount / metrics.length) * 100);
+      return { sectionIdx: idx, heading: sec.heading || `(Section ${idx+1})`, headingLevel: sec.headingLevel || 2, wc, wcTargetMin: wcMin, wcTargetMax: wcMax, paras, sentencesPerPara, metrics, passCount, total: metrics.length, pct, anyCritical };
+    });
   }
 
   async function doRewriteSection(sectionIdx: number) {
@@ -1250,7 +1433,8 @@ export default function WritePage() {
       const r: any = await createDraftMut.mutateAsync(payload);
       if (r?.ok) {
         if (r.draft_id) setDraftId(Number(r.draft_id));
-        if (r.title) setKeyword(String(r.title).slice(0, 200));
+        // WO-H1-2569-001 TASK 3.2 FIX #4/4: CreateDraft title → H1 FIELD SEPARATE (NOT keyword)
+        if (r.title && !h1.trim()) setH1(String(r.title).slice(0, 512));
         if (r.meta?.meta_title) setMt(String(r.meta.meta_title).slice(0, 120));
         if (r.meta?.meta_description) setMdes(String(r.meta.meta_description).slice(0, 320));
         if (Array.isArray(r.outline?.sections) && r.outline.sections.length > 0) {
@@ -1285,6 +1469,7 @@ export default function WritePage() {
               heading_level: (p.headingLevel === 2 ? 2 : p.headingLevel === 3 ? 3 : p.headingLevel) as 2 | 3 | 4 | 5 | 6,
               heading_text: String(p.heading || '').trim(),
               word_target_min: p.headingLevel === 2 ? 250 : p.headingLevel === 3 ? 120 : 60,
+              word_target_max: p.headingLevel === 2 ? 350 : p.headingLevel === 3 ? 220 : 160,
               key_points: generateBulletsForHeading(String(p.heading || '').trim(), p.headingLevel as any)
             }));
           const safeHeadings = sanitizeOutlineRows(headingRows);
@@ -1293,7 +1478,8 @@ export default function WritePage() {
         dirtyRef.current = true; scheduleAutoSave();
         if (typeof r.word_count_total === 'number' || wordCount >= 400) {
           const wc = typeof r.word_count_total === 'number' ? r.word_count_total : wordCount;
-          toast.success(`✅ เขียนเสร็จ ${wc.toLocaleString()} คำ · ${r.eeat_score ?? (eeatEst + '/100')} EEAT`);
+          const chDone = countCharsNoSpaces(finalMd || '');
+          toast.success(`✅ เขียนเสร็จ ${wc.toLocaleString()} คำ · ${chDone.toLocaleString()} ตัวอักษรไทย · ${r.eeat_score ?? (eeatEst + '/100')} EEAT`);
         }
         // REAL PROGRESS from parsed sections (no fake ticker!)
         try {
@@ -1301,6 +1487,9 @@ export default function WritePage() {
           const countDone = parsed.filter(s => s.headingLevel >= 2 && s.body.trim().length >= 120).length;
           const actualWords = Number(r?.word_count_total ?? 0) > 0 ? Number(r.word_count_total) : (wordCount || 0);
           const targetWords = Math.max(1000, Number(targetWordTotal) || 0);
+          const actualChars = countCharsNoSpaces(finalMd || '');
+          const targetCharsMin = Math.round(targetWords * 4);
+          const targetCharsMax = Math.round(targetWords * 5);
           const wordRatio = targetWords > 0 ? (actualWords / targetWords) : 0;
           const hasPlaceholder = !!(r?.has_placeholder || (finalMd && /\[AUTO PLACEHOLDER\s*[—\-]/.test(finalMd)));
           setWriteHasPlaceholder(!!hasPlaceholder);
@@ -1315,7 +1504,7 @@ export default function WritePage() {
           } else {
             const err = hasPlaceholder
               ? `มี section เป็น AUTO PLACEHOLDER (LLM ล้ม 5/5) — ต้องกด 🔁 Force สร้างใหม่ หรือแก้ไขด้วยมือก่อน Publish`
-              : `บทความ ${actualWords.toLocaleString()} / ${targetWords.toLocaleString()} คำ (${Math.round(wordRatio * 100)}% ของเป้า) — ต้อง≥80% ถึงจะผ่านเกณฑ์`;
+              : `บทความ ${actualWords.toLocaleString()} คำ (${actualChars.toLocaleString()} ตัวอักษรไทย) / ${targetWords.toLocaleString()} คำ · เป้าหมายตัวอักษร ${targetCharsMin.toLocaleString()}–${targetCharsMax.toLocaleString()} (${Math.round(wordRatio * 100)}% ของเป้า) — ต้อง≥80% ถึงจะผ่านเกณฑ์`;
             stopStream('error', err);
             setStreamState(s => {
               const totalH2PlusInParsed = parsed.filter(p => p.headingLevel >= 2).length;
@@ -1564,9 +1753,20 @@ export default function WritePage() {
                   if (rat < 0.8 || tw < 600) { toast.error(`เนื้อหายังสั้น: ${tw.toLocaleString()}/${wt.toLocaleString()} คำ = ${Math.round(rat*100)}% (ต้อง≥80%)`); return; }
                 }
               }
+              // STEP 6 → 7 GUARD (cur===5): SEO Blueprint 18 Rules Hard Block
+              if (cur === 5) {
+                const seoComp = (window as any).__seoCompliance;
+                if (!seoComp) { toast.error('🚫 ยังไม่พบผลการตรวจสอบ SEO Audit (ต้องโหลดส่วนด้านบน Step 6 ก่อน — เลื่อน scroll ขึ้นไปครั้งเดียว)'); return; }
+                if (!!seoComp.anyHardBlock) {
+                  const cc = Number(seoComp.combinedPct || 0);
+                  const crit = Number(seoComp.globalCrit || 0) + Number(seoComp.critCount || 0);
+                  toast.error(`🚫 SEO Gate FAIL: ${cc}% < 75% หรือมี Critical ${crit} อย่าง (ต้องแก้ก่อนกดถัดไป · ดูรายละเอียดด้านบน Step 6 Audit Block)`);
+                  return;
+                }
+              }
               setCur(Math.min(STEPS.length - 1, cur + 1));
             }}
-            disabled={cur === STEPS.length - 1}
+            disabled={cur === STEPS.length - 1 || (cur === 5 && !!((window as any).__seoCompliance?.anyHardBlock))}
           >
             <ChevronRight className="size-4 mr-1" />ถัดไป
           </Button>
@@ -2030,19 +2230,35 @@ export default function WritePage() {
                       >
                         <GripVertical className={`size-4 shrink-0 ${isDragging ? 'text-amber-600' : 'text-stone-400 hover:text-stone-600'}`} aria-hidden />
                       </div>
-                      <select
-                        value={sec.heading_level}
-                        onChange={(e) => setOutlineLevel(i, Number(e.target.value))}
-                        className={`h-8 text-[11px] font-bold px-2 rounded-md border-none outline-none cursor-pointer ${isH1 ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'}`}
-                        aria-label={`Heading level row ${i + 1}`}
-                      >
-                        {[1,2,3,4,5,6].map(n => <option key={n} value={n}>H{n}</option>)}
-                      </select>
+                      {/* WO-H1-2569-001 TASK 3.3: H1 = DISTINCT PILLAR BADGE (ห้ามเหมือน H2 select dropdown) */}
+                      {isH1 ? (
+                        <div className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-gradient-to-br from-amber-200 via-amber-100 to-yellow-50 border border-amber-400 text-amber-900 text-[11px] font-black shadow-[0_1px_0_rgba(146,64,14,0.2)] shrink-0" title="หัวข้อหลักของบทความ ควรมีเพียง 1 อัน">
+                          <span className="text-[13px] leading-none">🏛️</span>
+                          <span className="tracking-wide">H1 · PILLAR</span>
+                        </div>
+                      ) : (
+                        <select
+                          value={sec.heading_level}
+                          onChange={(e) => setOutlineLevel(i, Number(e.target.value))}
+                          className={`h-8 text-[11px] font-bold px-2 rounded-md border-none outline-none cursor-pointer ${isH1 ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'}`}
+                          aria-label={`Heading level row ${i + 1}`}
+                        >
+                          {[2,3,4,5,6].map(n => <option key={n} value={n}>H{n}</option>)}
+                        </select>
+                      )}
                       <input
                         value={sec.heading_text}
                         onChange={(e) => setOutlineText(i, e.target.value)}
-                        className="flex-1 !h-9 px-3 border border-stone-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-amber-200"
-                        placeholder="หัวข้อ..."
+                        onBlur={(e) => {
+                          // WO-H1-2569-001 TASK 3.4 SYNC: User edits H1 heading_text directly in outline → sync back to top H1 input
+                          if (isH1) {
+                            const nv = e.target.value.trim();
+                            if (nv && !h1.trim()) setH1(String(nv).slice(0, 512));
+                            else if (nv && nv !== h1.trim()) setH1(String(nv).slice(0, 512));
+                          }
+                        }}
+                        className={`flex-1 !h-9 px-3 rounded-lg text-sm bg-white outline-none focus:ring-2 ${isH1 ? 'border-2 border-amber-300 focus:ring-amber-200 font-bold text-amber-950' : 'border border-stone-200 focus:ring-amber-200'}`}
+                        placeholder={isH1 ? 'หัวข้อเรื่อง H1 (บทความควรมี H1 แค่ 1 อันเดียว) ...' : 'หัวข้อ...'}
                         aria-label={`Outline heading text row ${i + 1}`}
                       />
                       <span className="text-[10px] text-stone-400 hidden sm:block w-14 text-right">
@@ -2377,9 +2593,66 @@ export default function WritePage() {
                 <span>รวม {outlineSecs.filter(s=>s.heading_level!==1).length} section → 1 บทความ (<b>{wordCount.toLocaleString()}</b> คำ)</span>
                 {ymylInjected && <Badge className="!ml-2 !bg-rose-100 !text-rose-700 !border-rose-200">🛡️ YMYL Disclaimer: ON</Badge>}
               </div>
+              {/* WO-H1-2569-001 TASK 3.1+3.4: H1 แยกเป็นเอกเทศ (ก่อน Meta Title) */}
+              <div className="space-y-2 p-4 rounded-xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-white shadow-[0_1px_0_rgba(146,64,14,0.05)]">
+                <div className="flex items-start justify-between text-[12.5px] pl-1 pr-1 gap-3 flex-wrap">
+                  <label className="font-black text-amber-900 flex items-center gap-2">
+                    <span className="text-[16px]">🏛️</span>
+                    หัวข้อเรื่อง (H1 Content — <span className="text-[11px] text-amber-700">ปรากฏบนหน้าบทความจริง</span>)
+                  </label>
+                  <span className={h1.length >= 40 && h1.length <= 120 ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold'}>
+                    <b>{h1.length}</b>/512 ตัวอักษร{h1.length >= 40 && h1.length <= 120 ? ' ✓ ความยาวเหมาะสม (40–120)' : h1.length===0 ? ' (AI จะเติมจาก Outline H1 อัตโนมัติ)' : ' (แนะนำ 40–120 ตัว)'}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    value={h1}
+                    onChange={(e) => setH1(e.target.value.slice(0, 512))}
+                    onBlur={() => {
+                      if (h1.trim()) {
+                        const idx = outlineSecs.findIndex(s => s.heading_level === 1);
+                        if (idx >= 0) {
+                          const cpy = outlineSecs.slice();
+                          if (cpy[idx].heading_text.trim() !== h1.trim()) {
+                            cpy[idx] = { ...cpy[idx], heading_text: h1.trim() };
+                            setOutlineSecs(cpy);
+                          }
+                        } else {
+                          setOutlineSecs(prev => [{ heading_level: 1, heading_text: h1.trim().slice(0,240), word_target_min: 0, word_target_max: 0, key_points: generateBulletsForHeading(h1.trim(), 1) }, ...prev]);
+                        }
+                      }
+                    }}
+                    placeholder='เช่น ทีเด็ดบอล คู่มือ 2569: เลขเด็ด วิธีดูตารางบอล และเคล็ดลับชนะอย่างปลอดภัย'
+                    className="w-full !h-12 px-4 rounded-lg border-2 border-amber-200 bg-white text-[14px] font-semibold text-stone-900 outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400"
+                    maxLength={512}
+                  />
+                  {!h1.trim() && outlineSecs.some(s=>s.heading_level===1) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const fH1 = outlineSecs.find(s=>s.heading_level===1)?.heading_text || '';
+                        if (fH1) setH1(fH1.slice(0, 512));
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] px-2.5 h-7 rounded-md bg-amber-600 text-white hover:bg-amber-700 shadow-sm"
+                    >
+                      ⤵️ คัดลอกจาก Outline H1
+                    </button>
+                  )}
+                </div>
+                <div className="h-2.5 rounded-full overflow-hidden bg-amber-100/80">
+                  <div
+                    className={`h-full transition-all ${h1.length>=40 && h1.length<=120 ? 'bg-emerald-600' : h1.length>120 ? 'bg-amber-600' : 'bg-amber-400'}`}
+                    style={{ width: `${Math.min(100, (h1.length / 120) * 100)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] pl-1 pr-1 text-amber-700/90 mt-0.5">
+                  <span className="font-semibold">💡 H1 = ชื่อบทความบนหน้าเว็บ (คนอ่านเห็นจริง) ความยาวประมาณ 40–120 ตัว</span>
+                  <span className="text-stone-400">คนละฟิลด์กับ Meta Title SERP ด้านล่าง</span>
+                </div>
+              </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-[12.5px] pl-1 pr-1">
-                  <label className="font-semibold text-stone-700">Meta Title (ชื่อหน้า SERP Google)</label>
+                  <label className="font-semibold text-stone-700">Meta Title (ชื่อหน้า SERP Google · <span className="text-[11px] text-sky-700">≤60 ตัว</span>)</label>
                   <span className={mt.length >= 30 && mt.length <= 60 ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold'}>
                     <b>{mt.length}</b>/60 ตัวอักษร{mt.length >= 30 && mt.length <= 60 ? ' ✓ Optimal' : ' (เป้าหมาย 30-60)'}
                   </span>
@@ -2420,13 +2693,59 @@ export default function WritePage() {
               </div>
             </div>
             <Separator />
-            <div className="p-4 rounded-xl bg-sky-100 border border-sky-200 text-[13px]">
-              <div className="text-[11px] font-semibold text-sky-700 uppercase tracking-wide mb-1">👀 SERP Preview (Google)</div>
-              <div className="text-[15px] font-bold text-sky-800 mb-1 leading-snug">{mt || <span className="text-sky-400 italic">Meta Title ยังไม่ถูกตั้งค่า</span>}</div>
-              <div className="text-[11px] text-emerald-700 mb-2 truncate">thaiaeo.manus.host › blog › {keyword ? keyword.replace(/\s+/g, '-').slice(0,80) : 'article-slug'}</div>
-              <div className="text-[13px] text-stone-700 leading-snug">
-                {mdes || <span className="text-stone-400 italic">Meta Description ยังไม่ถูกตั้งค่า — คำบรรยายจะปรากฏตรงนี้บนหน้าผลการค้นหา Google</span>}
+            {/* WO-H1-2569-001 TASK 3.5: SPLIT 2 columns LEFT=บทความ <h1> CONTENT vs RIGHT=Google SERP <title> Meta */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* LEFT COLUMN = CONTENT H1 (ปรากฏบนหน้าเว็บคนอ่าน) */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-amber-100/60 via-yellow-100/40 to-white border-2 border-amber-300">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-black uppercase tracking-wide text-amber-800 flex items-center gap-1.5">
+                    <span className="text-[14px]">🏛️</span>
+                    1. บทความจริง (H1) — ผู้อ่านเห็นบนหน้าเว็บ
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold shadow-sm border border-amber-400/70">
+                    &lt;h1&gt;
+                  </span>
+                </div>
+                <div className="p-4 rounded-lg bg-white/85 border border-amber-200 min-h-[64px] flex items-center">
+                  {h1.trim() ? (
+                    <h1 className="text-[22px] leading-[1.35] font-black text-amber-950 break-words">{h1}</h1>
+                  ) : (
+                    <div className="text-amber-400 italic text-[13px]">หัวข้อเรื่อง (H1) ยังไม่ถูกตั้งค่า — จะเติมอัตโนมัติจาก Outline Section แรกที่เป็น H1 เมื่อ AI สร้างเสร็จ</div>
+                  )}
+                </div>
+                <div className="mt-1.5 text-[10.5px] text-amber-800/80 flex items-center justify-between pl-0.5 pr-0.5">
+                  <span>👀 ปรากฏที่หัวบทความ ก่อนเนื้อหาทุกประเด็น</span>
+                  <span className="tabular-nums">{h1.length} ตัว</span>
+                </div>
               </div>
+              {/* RIGHT COLUMN = GOOGLE SERP (Meta Title + Meta Desc) */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-sky-100/80 via-white to-sky-50 border-2 border-sky-300">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-black uppercase tracking-wide text-sky-800 flex items-center gap-1.5">
+                    <span className="text-[14px]">🔍</span>
+                    2. Google SERP (Meta Title) — ผู้ใช้เห็นบนผลการค้นหา
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-200 text-sky-900 font-bold shadow-sm border border-sky-400/70">
+                    &lt;title&gt;
+                  </span>
+                </div>
+                <div className="p-4 rounded-lg bg-white border border-sky-200 min-h-[88px]">
+                  <div className="text-[15px] font-bold text-sky-800 mb-1 leading-snug break-words">
+                    {mt || <span className="text-sky-400 italic">Meta Title ยังไม่ถูกตั้งค่า (ควร 30-60 ตัวอักษร)</span>}
+                  </div>
+                  <div className="text-[11px] text-emerald-700 mb-2 truncate">thaiaeo.manus.host › blog › {keyword ? keyword.replace(/\s+/g, '-').slice(0,80) : 'article-slug'}</div>
+                  <div className="text-[13px] text-stone-700 leading-snug break-words">
+                    {mdes || <span className="text-stone-400 italic">Meta Description ยังไม่ถูกตั้งค่า — คำบรรยายจะปรากฏตรงนี้บนหน้าผลการค้นหา Google (ควร 120-320 ตัว)</span>}
+                  </div>
+                </div>
+                <div className="mt-1.5 text-[10.5px] text-sky-800/80 flex items-center justify-between pl-0.5 pr-0.5">
+                  <span>🔝 Title 30-60 / Desc 120-320 ตัวอักษรสุดท้าย</span>
+                  <span className="tabular-nums">title {mt.length}/60 · desc {mdes.length}/320</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-[11px] px-3 py-2 rounded-lg bg-stone-100/80 border border-stone-200 text-stone-600">
+              💡 <b className="text-stone-800">ความแตกต่างสำคัญ:</b> <span className="text-amber-800 font-semibold">H1 (ซ้าย)</span> ใช้บอกคนอ่านว่าบทความนี้คืออะไร (ยาวได้ 40–512 ตัว) ส่วน <span className="text-sky-800 font-semibold">Meta Title (ขวา)</span> ใช้ดึงดูดผู้ใช้กดคลิกจากหน้า Google (สั้น ≤60 ตัว) — สามารถใช้คนละสำนวนกันได้เลย
             </div>
           </CardContent>
         </Card>
@@ -2469,6 +2788,325 @@ export default function WritePage() {
                 </Button>
               </div>
 
+              {/* ===== SEO 18 BLUEPRINT RULES COMPLIANCE: GLOBAL SUMMARY ===== */}
+              {(() => {
+                const contentSecs = parsedSections.filter(s => (s.headingLevel || 0) >= 2 || (s.body && s.body.trim().length >= 40));
+                const lsiList: string[] = [];
+                if (keywordPlan?.lsiList && Array.isArray(keywordPlan.lsiList)) { for (const l of keywordPlan.lsiList.slice(0, 10)) { if (typeof l === 'string') lsiList.push(l); } }
+                const complAll = computeSectionCompliance(contentSecs.length ? contentSecs : parsedSections.filter(s => s.body && s.body.trim().length>0), outlineSecs.filter(o => o.heading_level !== 1), keyword || '', lsiList);
+                const avgPct = complAll.length ? Math.round(complAll.reduce((a,s)=>a+s.pct,0) / complAll.length) : 0;
+                const critCount = complAll.filter(s => s.anyCritical).length;
+                const wcTotal = estimateWordCount(bodyMd || '');
+                const wcTarget = Math.max(1000, Number(targetWordTotal) || 0);
+                const h2Count = outlineSecs.filter(s => s.heading_level === 2).length;
+                const introHeading = (outlineSecs.find(o=>o.heading_level===1)?.heading_text) || (parsedSections.find(s=>s.headingLevel===1)?.heading || '');
+                const h1HasFocus = hasKeywordOrLSI(introHeading, keyword || '', lsiList);
+
+                type GlobalRule = { pass: boolean; critical: boolean; label: string; detail: string; color: string };
+                const globalRules: GlobalRule[] = [];
+                // Pre-compute link + body scopes (avoid TDZ hoist error below G11/G12/G13)
+                const bodyTxt = String(bodyMd || '');
+                const linkMatches = bodyTxt.match(/\[(?:[^\]]*)\]\((https?:\/\/[^\s)]+)\)/g) || [];
+                const extLinks = linkMatches.filter(l => !/thaiaeo\.manus\.host|localhost|127\.0\.0\.1/.test(l)).length;
+                const intLinks = linkMatches.length - extLinks;
+                // G1: Total words 1000-1800 + chars 4000-9000 (Thai 4-5 chars/word actual measurement)
+                {
+                  const pass = wcTotal >= 1000 && wcTotal <= 1900;
+                  const critical = wcTotal < 800 || wcTotal > 2200;
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const pctWc = Math.max(0, Math.round(100 * wcTotal / Math.max(1, wcTarget)));
+                  const charsTotal = countCharsNoSpaces(bodyMd || '');
+                  const charsMin = 4000; const charsMax = 9000;
+                  const wcDetail2 = `${wcTotal.toLocaleString()} / ${wcTarget.toLocaleString()} คำ (${pctWc}%)`;
+                  const charsDetail2 = `${charsTotal.toLocaleString()} / ${charsMin.toLocaleString()}–${charsMax.toLocaleString()} ตัวอักษรไทย`;
+                  const tail = wcTotal<1000?'⚠️ <1000 สั้นเกินไป (G1)':wcTotal>1900?wcTotal>2200?'🔴 >2200 ยาวเวอร์':'🟡 ใกล้ 2000':'✅ 1000–1800 พอดี (G1 PASS)';
+                  const detail = `${wcDetail2} · ${charsDetail2} — ${tail}`;
+                  globalRules.push({ pass, critical, label: '🌐 ก1 ความยาวรวมบทความ 1000–1800 คำ · 4,000–9,000 ตัวอักษรไทย', detail, color });
+                }
+                // G2: 3-6 H2 headings
+                {
+                  const pass = h2Count >= 3 && h2Count <= 6;
+                  const critical = h2Count < 2 || h2Count > 8;
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const detail = `${h2Count} H2 headings — เป้าหมาย 3–6 (${h2Count<3?'⚠️ น้อยเกินไป (G2)':h2Count>6?'🟡 มากเกิน 6 → แนะนำลด':'✅ 3–6 H2 พอดี (G2 PASS)'})`;
+                  globalRules.push({ pass, critical, label: '🌐 ก2 จำนวนหัวข้อหลัก (H2) 3–6 หัวข้อ', detail, color });
+                }
+                // G3/G8: Section MAX 500 (anyCritical wc>=400 count → Rule G3 H3 split)
+                {
+                  const hugeSec = complAll.filter(s => s.wc >= 400).length;
+                  const pass = hugeSec === 0;
+                  const critical = hugeSec >= 2;
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const detail = hugeSec === 0 ? 'ทุก Section ≤ 399 คำ (ไม่ต้องแยก H3)' : `${hugeSec} Section ≥ 400 คำ → ${critical?'🔴 ต้องแยก H3 หรือ bullet points (G3/ S4 RED)':'🟡 แนะนำแยก H3 หรือ bullets'}`;
+                  globalRules.push({ pass, critical, label: '🌐 ก3/G4 Section ≤ 350 คำ (≥400 ต้องแยก H3 / Bullet)', detail, color });
+                }
+                // K1: H1 heading มี Focus Keyword (CRITICAL RED หากไม่มี)
+                {
+                  const pass = !!h1HasFocus;
+                  const critical = !pass && wcTotal >= 500;
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const displayH1 = introHeading ? `"${introHeading.slice(0, 60)}${introHeading.length>60?'…':''}"` : '(ไม่พบ H1 — ต้องใส่ H1 ใน Outline)';
+                  const detail = pass ? `✅ H1 มี Focus/LSI keyword: ${displayH1}` : critical ? `🔴 H1 ${displayH1} ไม่มี Focus Keyword "${keyword||''}" (Rule K1 — Publish Block!)` : `🟡 H1 ${displayH1} — ตรวจภายหลัง`;
+                  globalRules.push({ pass, critical, label: '🔑 K1 H1 + H2 ต้องมี Focus Keyword (Publish Block)', detail, color });
+                }
+                // G9 / T1 ส่วนนำ Introduction Budget 100-150w / 400-750 chars (Crit <80 หรือ >200)
+                {
+                  const firstSec = parsedSections[0];
+                  const introBody = firstSec ? String(firstSec.body || '').trim() : '';
+                  const introWc = estimateWordCount(introBody);
+                  const introCh = countCharsNoSpaces(introBody);
+                  const pass = introWc >= 100 && introWc <= 150;
+                  const critical = introWc > 0 && (introWc < 80 || introWc > 200);
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const tag = introWc === 0 ? 'ยังไม่มีส่วนนำ'
+                    : introWc < 80 ? '🔴 สั้นเกินไป Crit'
+                    : introWc < 100 ? '🟡 <100 แนะนำเพิ่มเนื้อหา'
+                    : introWc <= 150 ? '✅ 100-150 พอดี'
+                    : introWc <= 200 ? '🟡 ใกล้ 200 แนะนำตัด'
+                    : '🔴 >200 ยาวเกิน Crit';
+                  const detail = `${introWc.toLocaleString()} คำ (${introCh.toLocaleString()} ตัวอักษร) / 100–150 คำ · 400–750 ตัวอักษร · ${tag} (T1 Blueprint)`;
+                  globalRules.push({ pass, critical, label: '📄 ก9 ส่วนนำ Introduction 100–150 คำ · 400–750 ตัวอักษร (Publish Block)', detail, color });
+                }
+                // G10 / T3 Conclusion + CTA Budget 100-150w / 400-750 chars (Crit <50 หรือ ไม่มี CTA)
+                {
+                  const lastSec = parsedSections[parsedSections.length - 1];
+                  const lastBody = lastSec ? String(lastSec.body || '').trim() : '';
+                  const lastHeading = String(lastSec?.heading || '').toLowerCase();
+                  const isConclusion = lastHeading.includes('สรุป') || lastHeading.includes('next step') || lastHeading.includes('next step') || parsedSections.length >= 2;
+                  const concWc = estimateWordCount(lastBody);
+                  const concCh = countCharsNoSpaces(lastBody);
+                  const last300 = lastBody.slice(-300);
+                  const hasIntLink = /\[[^\]]*\]\(\/(?!\/)/.test(last300) || /thaiaeo\.manus\.host/.test(last300);
+                  const hasCtaVerbs = /(กด|คลิก).*(ติดต่อ|สั่งซื้อ|ดูต่อ|อ่านเพิ่ม|ถัดไป|สมัคร)/.test(last300);
+                  const hasCta = hasIntLink || hasCtaVerbs;
+                  const wcCrit = concWc > 0 && concWc < 50;
+                  const ctaCrit = isConclusion && concWc > 0 && !hasCta;
+                  const critical = wcCrit || ctaCrit;
+                  const pass = concWc >= 100 && concWc <= 150 && hasCta;
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const wcTag = concWc === 0 ? 'ยังไม่มีสรุป'
+                    : concWc < 50 ? '🔴 <50 Crit'
+                    : concWc < 100 ? '🟡 <100 แนะนำเพิ่ม'
+                    : concWc <= 150 ? '✅ 100-150w'
+                    : concWc <= 200 ? '🟡 ใกล้ 200'
+                    : '🔴 >200';
+                  const ctaTag = hasCta ? 'มี CTA ✅' : '❌ ไม่มี CTA (ต้องมี Internal Link / Next Step)';
+                  const detail = `${concWc.toLocaleString()} คำ (${concCh.toLocaleString()} ตัวอักษร) / 100–150 คำ · 400–750 ตัวอักษร · ${wcTag} · CTA: ${ctaTag} (T3)`;
+                  globalRules.push({ pass, critical, label: '📝 ก10 สรุป Conclusion + CTA 100–150 คำ · 400–750 ตัวอักษร (Publish Block)', detail, color });
+                }
+                // G11 / C1 ตัวเลขสถิติ 2+ หลัก ต้องอ้างอิง (Digit ratio check)
+                {
+                  const digitMatchesG = bodyTxt.match(/\d{2,}/g) || [];
+                  const bodyCites = (bodyTxt.match(/\[CITE\d+\]/gi) || []).length;
+                  const reqLinks = Math.max(2, Math.ceil(digitMatchesG.length / 4));
+                  const linkTotal = extLinks + bodyCites;
+                  const noCiteAtAll = digitMatchesG.length >= 3 && linkTotal < reqLinks;
+                  const critical = digitMatchesG.length >= 6 && linkTotal < Math.ceil(digitMatchesG.length / 5);
+                  const pass = digitMatchesG.length === 0 || linkTotal >= reqLinks;
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const dtag = digitMatchesG.length === 0 ? 'ไม่มีตัวเลข' : `ตัวเลข ${digitMatchesG.length} กลุ่ม · ต้องการอ้างอิง ${reqLinks}+ จุด · ปัจจุบัน ${linkTotal} จุด${noCiteAtAll?' ⚠️ อ้างอิงน้อย':' / OK'}`;
+                  const detail = `${dtag} (C1)`;
+                  globalRules.push({ pass, critical, label: '📚 ก11 ตัวเลข/สถิติต้องอ้างอิง (Citation Rule C1)', detail, color });
+                }
+                // G12 / C2 Anchor Text ห้ามใช้ "คลิกที่นี่" / click here / raw URL
+                {
+                  const badAnchorG = bodyTxt.match(/\[(คลิกที่นี่|ที่นี่|อ่านต่อ|click here|here)\]\(/gi) || [];
+                  const rawUrlG = bodyTxt.match(/\[(https?:\/\/[^\]]*)\]\(/gi) || [];
+                  const totalBad = badAnchorG.length + rawUrlG.length;
+                  const pass = totalBad === 0;
+                  const critical = totalBad > 0;
+                  const color = pass ? '#047857' : '#991b1b';
+                  const detail = pass ? '✅ Anchor Text ทุกตัวสื่อความหมาย (ไม่ใช่ คลิกที่นี่ / raw URL)' : `🔴 พบ Anchor ไม่ดี ${totalBad} จุด — ห้ามใช้ "คลิกที่นี่" หรือวาง URL ดิบ (Publish Block) (C2)`;
+                  globalRules.push({ pass, critical, label: '🔗 ก12 Anchor Text ต้องสื่อความหมาย (ห้าม คลิกที่นี่ / Raw URL)', detail, color });
+                }
+                // G13 / C3 External Links แนะนำ target="_blank" (Soft Warning เท่านั้น ไม่ Publish Block)
+                {
+                  const mdExtLinks = bodyTxt.match(/\[[^\]]*\]\(https?:\/\/[^\s)]+\)/g) || [];
+                  const hasBlankAnn = mdExtLinks.filter(l => /\{?target="_blank|_blank|EXTERNAL/.test(l)).length;
+                  const missingBlank = Math.max(0, extLinks - hasBlankAnn);
+                  const pass = mdExtLinks.length === 0 || missingBlank === 0;
+                  const critical = false;
+                  const color = pass ? '#047857' : missingBlank > 0 ? '#92400e' : '#047857';
+                  const detail = extLinks === 0 ? 'ยังไม่มีลิงก์ภายนอก' : missingBlank === 0 ? `✅ External ทั้ง ${extLinks} ลิงก์ แนะนำ target="_blank" (C3)` : `🟡 ${missingBlank} ลิงก์ภายนอก แนะนำเพิ่ม target="_blank" เปิดแท็บใหม่ (Soft Warn ไม่บล็อก) (C3)`;
+                  globalRules.push({ pass, critical, label: '🪟 ก13 External Links แนะนำ target="_blank" (Soft Warn)', detail, color });
+                }
+                // G14 / F1 F3 F4 Forbidden Sources Detect Publish Block — Pantip / Sanook / Blogspot / คล้ายเว็บกระทู้ Copy Chain หรือโฆษณาแอบแฝง (>=2 เป็น Crit RED Block)
+                {
+                  const forbidDomainRegex = /pantip\.com|sanook\.com|dek-d\.com\/board|blogspot\.|pantipmarket|kapook\.com\/board|redd\.it|reddit\.com\/r\//i;
+                  const promoBadAnchorRegex = /\[(.*?(โปร|ลดราคา|คูปอง|สั่งซื้อ|รีวิวตัวนี้|รีวิวสินค้า|รีวิวเลย|ซื้อเลย|ร้านนี้).*?)\]\(https?:\/\//i;
+                  const forbidMatches: string[] = [];
+                  const extAnchors = bodyTxt.match(/\[[^\]]*\]\(https?:\/\/[^\s)]+\)/gi) || [];
+                  for(const a of extAnchors){ if(forbidDomainRegex.test(a)) forbidMatches.push(a.slice(0,80)); }
+                  const f1Count = forbidMatches.length;
+                  const f3Matches = bodyTxt.match(promoBadAnchorRegex) || [];
+                  const f3Count = f3Matches.length;
+                  const f1f3Total = f1Count + f3Count;
+                  const pass = f1f3Total === 0;
+                  const critical = f1f3Total >= 2 || (f1Count >= 1 && wcTotal >= 600);
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const detail = f1f3Total === 0
+                    ? '✅ ไม่พบแหล่งอ้างอิงผิดกฎ (F1 Forum Copy Chain / F3 Promo Ad No Data)'
+                    : `${f1Count>0?'🔴 F1: พบ Forum/Copy-Chain '+f1Count+' ลิงก์ (Pantip/Sanook/Dek-D/Blogspot) ':''}${f3Count>0?'🟡 F3: พบ Promo No Data '+f3Count+' Anchor ':''}${critical?' (Publish Block CRIT G14)':' แนะนำเปลี่ยนเป็น Q1-Q4 Source'}`;
+                  globalRules.push({ pass, critical, label: '🚫 ก14 Forbidden Sources ห้ามอ้างอิง F1/F3 (Publish Block CRIT ≥2)', detail, color });
+                }
+                // G15 / F2 Outdated Stats Recency Soft Warn — พบปี 2022 หรือก่อนหน้า >=2 ตรง ใน Anchor / บริบท สถิติ → YELLOW ไม่ Block
+                {
+                  const oldYearRegex = /\b(201[0-9]|2020|2021|2022)\b/g;
+                  const oldYearMatches = bodyTxt.match(oldYearRegex) || [];
+                  const critical = false;
+                  const pass = oldYearMatches.length <= 1 || wcTotal <= 100;
+                  const color = pass ? '#047857' : '#92400e';
+                  const detail = oldYearMatches.length === 0
+                    ? '✅ ไม่พบข้อมูลล้าสมัย (ปี 2022 หรือก่อนหน้า)'
+                    : `${oldYearMatches.length} ครั้ง พบปี 201X-2022 ในเนื้อหา — ${oldYearMatches.length>=3?'🟡 แนะนำอัปเดตข้อมูลเป็นปี 2568+ ใหม่':'💡 ปีเก่าอาจจะยอมรับได้ถ้าเป็นทฤษฎีพื้นฐาน/ประวัติศาสตร์'} (F2)`;
+                  globalRules.push({ pass, critical, label: '⏱️ ก15 แหล่งอ้างอิงน้อยเกิน 3 ปี (Recency F2 Soft Warn)', detail, color });
+                }
+                // G16 / P2 Anchor Semantic Depth >=5 chars minimum not vague — count anchor < 5 Thai/Eng chars (ไม่ใช่ คลิกที่นี่ ที่ผ่านกฎ G12 แล้ว แต่ยังสั้นกว่า 5 อักษร = Vague Warn)
+                {
+                  const anchorShort: string[] = [];
+                  const eachAnchor = bodyTxt.match(/\[([^\]]{1,12})\]\(https?:\/\//g) || [];
+                  for(const a of eachAnchor){
+                    const m = a.match(/^\[(.{1,12})\]\(/);
+                    if(!m) continue;
+                    const anchorText = m[1].trim();
+                    // Skip if already caught in G12 bad anchor list (avoid double flag same)
+                    if(/^(คลิกที่นี่|ที่นี่|อ่านต่อ|click here|here)$/i.test(anchorText)) continue;
+                    const stripped = anchorText.replace(/[\s\-\.\!\?\,\:]/g,'');
+                    // Thai chars count as graphemes, we approximate len >=5 original string or >=3 stripped for safety
+                    if(anchorText.length < 5 || stripped.length <= 2) anchorShort.push(anchorText);
+                  }
+                  const shortN = anchorShort.length;
+                  const pass = shortN === 0;
+                  const critical = false;
+                  const color = pass ? '#047857' : shortN >= 3 ? '#92400e' : '#92400e';
+                  const detail = shortN === 0
+                    ? '✅ Anchor Text ทุกอัน ความยาว >= 5 ตัวอักษร สื่อความหมายชัดเจน (P2)'
+                    : `🟡 ${shortN} Anchor Text สั้นเกินไป (<5 ตัวอักษร)${shortN>=3?' — แนะนำใส่ชื่อหน่วยงาน/ชื่องานวิจัย (Anchor Semantic P2)':' — แนะนำปรับเพิ่มข้อความคำอธิบาย'}`;
+                  globalRules.push({ pass, critical, label: '🧭 ก16 Anchor Text ความยาวเพียงพอ สื่อความหมาย (P2 Soft Warn)', detail, color });
+                }
+                // G17 / A1 Anchor Scope Exact (Publish Block CRIT RED หากครอบเกิน >=60 ตัวอักษร = ห้ามลากไฮไลต์ทั้งประโยค — User VERBATIM "อย่าลากไฮไลต์ทั้งประโยค")
+                {
+                  const overLongAnchors: string[] = [];
+                  const anyAnchorLen = bodyTxt.match(/\[([^\]]{1,200})\]\(https?:\/\//g) || [];
+                  for(const a of anyAnchorLen){
+                    const m = a.match(/^\[(.{1,200})\]\(/);
+                    if(!m) continue;
+                    const anchorText = m[1];
+                    if(anchorText.length >= 60) overLongAnchors.push(anchorText.slice(0,90));
+                  }
+                  const badScope = overLongAnchors.length;
+                  const pass = badScope === 0;
+                  const critical = badScope >= 2 || (badScope >= 1 && wcTotal >= 800);
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const ex = badScope > 0 ? overLongAnchors.slice(0,2).map(t=>`"${t.slice(0,40)}"`).join(' / ') : '';
+                  const detail = badScope === 0
+                    ? '✅ Anchor ทุกอัน ครอบเฉพาะชื่อหน่วยงาน (ไม่ครอบทั้งประโยค) — 8-50 ตัวอักษรพอดี (A1 G17)'
+                    : `${critical?'🔴 Publish Block CRIT':'🟡'} ${badScope} Anchor ครอบเกิน ${overLongAnchors.map(x=>x.length).join(',')} ตัวอักษร (ครอบทั้งประโยค A1 ผิด)${ex?` ตัวอย่าง ${ex}`:''}${critical?' ห้ามเผยแพร่ จนกว่าจะแก้':' แนะนำปรับครอบเฉพาะชื่อหน่วยงาน'}`;
+                  globalRules.push({ pass, critical, label: '🎯 ก17 Anchor Scope ครอบเฉพาะชื่อหน่วยงาน ห้ามครอบทั้งประโยค (A1 Publish Block ≥2)', detail, color });
+                }
+                // G18 / A2 Year Context — 3+ Digit Stats in paragraph MUST HAVE Year 256X / 202X tag = SOFT YELLOW WARN
+                {
+                  // Split paragraphs: \n\n split OR 2 newlines
+                  const paragraphs = bodyTxt.split(/\n{2,}/).map(p=>p.trim()).filter(Boolean);
+                  let missingYearCount = 0;
+                  for(const p of paragraphs){
+                    const bigDigit = p.match(/\d{3,}/g);
+                    if(!bigDigit || bigDigit.length < 1) continue;
+                    const hasYear = /(256[0-9]|255[0-9]|20[2-3][0-9]|พ\.ศ\.|ค\.ศ\.)/.test(p);
+                    if(!hasYear) missingYearCount++;
+                  }
+                  const pass = missingYearCount === 0;
+                  const critical = false;
+                  const color = pass ? '#047857' : missingYearCount >= 3 ? '#92400e' : '#92400e';
+                  const detail = paragraphs.length === 0 || bodyTxt.length < 300
+                    ? '✅ (เนื้อหายังไม่พอประเมินปี/บริบทเวลา)'
+                    : missingYearCount === 0
+                      ? '✅ ย่อหน้าที่มีตัวเลขสถิติทุกย่อหน้า ระบุปีบริบทเวลาไว้เรียบร้อย (A2 G18)'
+                      : `🟡 ${missingYearCount} ย่อหน้ามีตัวเลข 3+ หลัก แต่ยังไม่ได้ระบุปี (พ.ศ. 25XX / ค.ศ. 20XX) — แนะนำใส่ปีเพื่อบอกความทันสมัย A2`;
+                  globalRules.push({ pass, critical, label: '📅 ก18 สถิติทุกย่อหน้า ต้องระบุบริบทปี พ.ศ./ค.ศ. (A2 Soft Warn)', detail, color });
+                }
+                // G19 / A3 Layman Terms Conversion — ห้ามใช้ศัพท์สถิติซับซ้อนโดยไม่แปลงเป็นธรรมดา — SOFT YELLOW WARN
+                {
+                  const jargonRegex = /p-value|confidence interval|statistical significance|p\s*<\s*0\.05|p\s*<\s*0\.01|statistically significant|p-val|นัยสำคัญทางสถิติ|ค่า p/gi;
+                  const jargonMatches = bodyTxt.match(jargonRegex) || [];
+                  const pass = jargonMatches.length === 0;
+                  const critical = false;
+                  const color = pass ? '#047857' : jargonMatches.length >= 3 ? '#92400e' : '#92400e';
+                  const uniq = jargonMatches.length > 0 ? Array.from(new Set(jargonMatches.map(s=>s.toLowerCase()))).slice(0,4).join(' / ') : '';
+                  const detail = pass === true
+                    ? '✅ ไม่พบศัพท์สถิติซับซ้อน (A3 G19)'
+                    : `🟡 พบศัพท์สถิติซับซ้อน ${jargonMatches.length} ครั้ง${uniq?` (${uniq})`:''} — แนะนำแปลงเป็นภาษาธรรมดา เช่น "p-value <0.01" → "พบความแตกต่างอย่างชัดเจนในกลุ่มทดลอง" A3`;
+                  globalRules.push({ pass, critical, label: '🗣️ ก19 ศัพท์สถิติซับซ้อน ให้แปลงเป็นภาษาธรรมดา (A3 Soft Warn)', detail, color });
+                }
+                // Overall: Links External 2-4 DA≥40 (G6) + Internal 2-5 Silo (G7)
+                {
+                  const pass = extLinks >= 2 && extLinks <= 6;
+                  const critical = extLinks === 0 && wcTotal >= 1000;
+                  const color = pass ? '#047857' : critical ? '#991b1b' : '#92400e';
+                  const detail = `${extLinks} ลิงก์ภายนอก — เป้าหมาย 2–4 Authority DA≥40 (${pass?'✅ G6 PASS':extLinks===0?'⚠️ ยังไม่มีลิงก์ภายนอก (G6)':'🟡 แนะนำเพิ่ม/ลด'})`;
+                  globalRules.push({ pass, critical, label: '🌐 ก6 External Links 2–4 (Authority/Gov/Edu/งานวิจัย)', detail, color });
+                }
+                {
+                  const pass = intLinks >= 2 && intLinks <= 8;
+                  const critical = false;
+                  const color = pass ? '#047857' : intLinks === 0 ? '#92400e' : '#92400e';
+                  const detail = `${intLinks} ลิงก์ภายใน — เป้าหมาย 2–5 (Silo Structure G7: ${pass?'✅ PASS':intLinks===0?'🟡 ยังไม่มี Internal Link (แนะนำเพิ่ม)':'🟡 แนะนำปรับ'})`;
+                  globalRules.push({ pass, critical, label: '🌐 ก7 Internal Links 2–5 (Silo Structure)', detail, color });
+                }
+
+                const globalPass = globalRules.filter(r => r.pass).length;
+                const globalCrit = globalRules.filter(r => r.critical).length;
+                const globalPct = Math.round((globalPass / Math.max(1, globalRules.length)) * 100);
+                const combinedPct = complAll.length ? Math.round((globalPct * 0.35) + (avgPct * 0.65)) : globalPct;
+                const anyHardBlock = globalCrit > 0 || critCount > 0 || combinedPct < 75;
+
+                // Stored as window-scope refs for guards below:
+                (window as any).__seoCompliance = { combinedPct, avgPct, globalPct, critCount, globalCrit, anyHardBlock };
+
+                const overallColor = combinedPct >= 85 ? '#047857' : combinedPct >= 75 ? '#047857' : combinedPct >= 60 ? '#92400e' : '#991b1b';
+                return (
+                  <div className="mb-4 space-y-3 p-4 rounded-2xl border-2" style={{ borderColor: overallColor, background: `color-mix(in srgb, ${overallColor} 6%, #fff)` }}>
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div>
+                        <div className="text-[15px] font-black flex items-center gap-2" style={{ color: overallColor }}>
+                          <ShieldCheck className="size-5" /> SEO Blueprint 39 Rules (18 Base + 11 Template/Citation + 5 Source Tier + 5 Citation Sentence 2026/09/18) — ความสอดคล้องทั้งบทความ
+                        </div>
+                        <div className="text-[12px] text-stone-500 mt-0.5">ประเมินอัตโนมัติ 17 Global Rules + 6 Per-Section Metrics × {complAll.length} Sections = {17 + complAll.length*6} Checkpoints (Add Citation Sentence TEMPLATES 6 + A1-A3 Techniques)</div>
+                      </div>
+                      <div className="flex items-end gap-2">
+                        <div className="text-right">
+                          <div className="text-[11px] text-stone-500">SCORE รวม (Global 35% + Sections 65%)</div>
+                          <div className="text-[36px] font-black leading-none" style={{ color: overallColor }}>{combinedPct}<span className="text-[18px] font-bold opacity-70">%</span></div>
+                        </div>
+                        <div className="h-12 w-28 rounded-xl overflow-hidden border border-stone-200 bg-white">
+                          <div className="h-full transition-all duration-500" style={{ width: `${Math.max(4, combinedPct)}%`, background: overallColor }} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {globalRules.map((r, i) => (
+                        <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl border" style={{ borderColor: `color-mix(in srgb, ${r.color} 40%, #fff)`, background: `color-mix(in srgb, ${r.color} 4%, #fff)` }}>
+                          <div className="mt-0.5 shrink-0 size-4 rounded-full flex items-center justify-center text-white text-[10px] font-black" style={{ background: r.color }}>{r.pass?'✓':'!'}</div>
+                          <div className="min-w-0">
+                            <div className="text-[12.5px] font-bold leading-tight" style={{ color: r.color }}>{r.label}{r.critical && <span className="ml-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-black border border-rose-200">Publish Block</span>}</div>
+                            <div className="text-[12px] text-stone-600 mt-0.5">{r.detail}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                      <div className="text-[11.5px] text-stone-500">
+                        Section Avg: <b className="text-stone-800">{avgPct}%</b> · Pass {complAll.reduce((a,s)=>a+s.passCount,0)}/{complAll.reduce((a,s)=>a+s.total,0)} metrics
+                        {critCount > 0 && <span className="ml-3 font-black text-rose-700">⚠️ {critCount} Section มี Critical Fail! ต้องแก้ก่อน Publish</span>}
+                      </div>
+                      <div className="text-[11.5px] font-bold px-3 py-1.5 rounded-lg" style={{ color: anyHardBlock ? '#991b1b' : '#047857', background: anyHardBlock ? '#fef2f2' : '#f0fdf4', border: `1px solid ${anyHardBlock ? '#fecaca' : '#bbf7d0'}` }}>
+                        {anyHardBlock ? `❌ ไม่ผ่าน Publish Gate — ${combinedPct}% < 75% หรือมี Critical ${globalCrit+critCount} อย่าง (ต้องแก้ก่อน Publish/ถัดไป)` : `✅ ผ่าน Publish Gate — ${combinedPct}% ≥ 75% ไม่มี Critical Fail`}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* PER-SECTION CARDS (H2 wrapper + inline textarea + ✨ AI Rewrite button per section) */}
               <div className="space-y-3">
                 {parsedSections.length === 0 && (
@@ -2486,6 +3124,14 @@ export default function WritePage() {
                   const bdCol = isH1 ? '#fde68a' : isH2 ? '#93c5fd' : isH3 ? '#6ee7b7' : '#e7e5e4';
                   const txtCol = isH1 ? 'text-amber-900' : isH2 ? 'text-sky-900' : isH3 ? 'text-emerald-900' : 'text-stone-700';
                   const isRewriting = rewritingSectionIdx === sIdx;
+                  const showSecCompliance = (sec.headingLevel || 0) >= 2 || (sec.body && sec.body.trim().length >= 60);
+                  let secCompliance: any = null;
+                  if (showSecCompliance) {
+                    const lsiList2: string[] = [];
+                    if (keywordPlan?.lsiList && Array.isArray(keywordPlan.lsiList)) { for (const l of keywordPlan.lsiList.slice(0, 10)) { if (typeof l === 'string') lsiList2.push(l); } }
+                    const arr = computeSectionCompliance([sec], outlineSecs.filter(o => o.heading_level !== 1), keyword || '', lsiList2);
+                    if (arr.length) secCompliance = arr[0];
+                  }
                   return (
                     <div
                       key={`sec-card-${sIdx}`}
@@ -2514,6 +3160,23 @@ export default function WritePage() {
                           <span className="hidden sm:inline-block text-[10.5px] opacity-70 mr-1">
                             ~{estimateWordCount(sec.body)} คำ
                           </span>
+                          {showSecCompliance && secCompliance && (
+                            <Badge
+                              className={`!text-[10.5px] !px-2 !py-0.5 shrink-0 mr-0.5 ${
+                                secCompliance.anyCritical
+                                  ? '!bg-rose-100 !text-rose-800 !border !border-rose-300'
+                                  : secCompliance.pct >= 80
+                                  ? '!bg-emerald-100 !text-emerald-800 !border !border-emerald-300'
+                                  : secCompliance.pct >= 60
+                                  ? '!bg-amber-100 !text-amber-800 !border !border-amber-300'
+                                  : '!bg-rose-50 !text-rose-700 !border !border-rose-200'
+                              }`}
+                            >
+                              <ShieldCheck className="size-3 inline -mt-0.5 mr-0.5" />
+                              {secCompliance.passCount}/{secCompliance.total} · {secCompliance.pct}%
+                              {secCompliance.anyCritical && <span className="ml-0.5">🔴</span>}
+                            </Badge>
+                          )}
                           <Button
                             size="sm"
                             variant={isH2 || !isIntro ? "default" : "outline"}
@@ -2544,6 +3207,44 @@ export default function WritePage() {
                             }`}
                           >
                             {sec.heading}
+                          </div>
+                        )}
+                        {showSecCompliance && secCompliance && (
+                          <div className="mb-2.5 space-y-1.5">
+                            <div className="text-[10.5px] uppercase tracking-wider text-stone-500 font-semibold flex items-center gap-1">
+                              <ShieldCheck className="size-3" />
+                              ความสอดคล้อง Blueprint 18 Rules · ส่วนนี้
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {secCompliance.metrics.map((m: any, mI: number) => {
+                                const mc = m.critical ? '#fecaca' : m.pass ? '#bbf7d0' : '#fde68a';
+                                const mtx = m.critical ? '#991b1b' : m.pass ? '#065f46' : '#92400e';
+                                const mbg = m.critical ? '#fef2f2' : m.pass ? '#f0fdf4' : '#fffbeb';
+                                return (
+                                  <div
+                                    key={`sm-${sIdx}-${mI}`}
+                                    className="p-1.5 rounded-lg border flex items-start gap-1.5"
+                                    style={{ borderColor: mc, background: mbg }}
+                                  >
+                                    <span
+                                      className="shrink-0 size-4 rounded-full grid place-items-center text-[9px] font-black mt-0.5"
+                                      style={{ background: mc, color: mtx }}
+                                    >
+                                      {m.pass ? '✓' : m.critical ? '!' : '!'}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-[11px] font-bold leading-tight" style={{ color: mtx }}>
+                                        {m.label}
+                                        {m.critical && <span className="ml-1 px-1 py-0.5 rounded bg-rose-100 text-rose-800 text-[9px] font-black border border-rose-200">Block</span>}
+                                      </div>
+                                      <div className="text-[10.5px] leading-tight mt-0.5 opacity-90" style={{ color: mtx }}>
+                                        {m.detail}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                         <textarea
@@ -2820,7 +3521,7 @@ export default function WritePage() {
                 <Button
                   className="!bg-amber-700 hover:!bg-amber-800"
                   onClick={() => doPublish(false)}
-                  disabled={publishMut.isPending || !draftId || writeHasPlaceholder || /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd||'') || (estimateWordCount(bodyMd||'') / Math.max(1, Math.max(1000, Number(targetWordTotal)||0)) < 0.8)}
+                  disabled={publishMut.isPending || !draftId || writeHasPlaceholder || /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd||'') || (estimateWordCount(bodyMd||'') / Math.max(1, Math.max(1000, Number(targetWordTotal)||0)) < 0.8) || !!((window as any).__seoCompliance?.anyHardBlock)}
                 >
                   {publishMut.isPending
                     ? <><Loader2 className="size-4 mr-2 animate-spin" />กำลังเผยแพร่…</>
@@ -2829,7 +3530,7 @@ export default function WritePage() {
                 <Button
                   variant="outline"
                   onClick={() => doPublish(true)}
-                  disabled={publishMut.isPending || !draftId || writeHasPlaceholder || /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd||'') || (estimateWordCount(bodyMd||'') / Math.max(1, Math.max(1000, Number(targetWordTotal)||0)) < 0.8)}
+                  disabled={publishMut.isPending || !draftId || writeHasPlaceholder || /\[AUTO PLACEHOLDER\s*[—\-]/.test(bodyMd||'') || (estimateWordCount(bodyMd||'') / Math.max(1, Math.max(1000, Number(targetWordTotal)||0)) < 0.8) || !!((window as any).__seoCompliance?.anyHardBlock)}
                 >
                   🔒 เลิกเผยแพร่
                 </Button>

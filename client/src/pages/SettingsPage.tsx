@@ -47,10 +47,8 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const now = new Date();
 
-  const isAdmin = user?.role === "admin" || user?.permission === "owner" || user?.permission === "admin";
+  const isAdmin = user?.permission === "owner" || user?.permission === "admin";
   const canSave = isAdmin;
-  // PHASE 2J BUGFIX: pass teamId from user default team for admin (Zod optional L258 settings.ts resolveTeamIdForSettings)
-  const defaultTeamId = Number((user as any)?.teamId ?? (user as any)?.defaultTeamId ?? 0);
 
   const settings = trpc.settings.get.useQuery(undefined, {
     enabled: isAdmin,
@@ -67,6 +65,9 @@ export default function SettingsPage() {
       }
     },
   });
+  // SET-03 BUGFIX: use explicit teamId from settings.get return first (resolved correctly on server); fallback to user then 0
+  const defaultTeamId = Number(settings?.data?.teamId ?? (user as any)?.teamId ?? (user as any)?.defaultTeamId ?? 0);
+
   const billing = trpc.settings.getBillingWindow.useQuery(
     { month: now.getMonth() + 1, year: now.getFullYear() },
     { enabled: isAdmin, staleTime: 1000 * 60 * 5 }
@@ -144,7 +145,8 @@ export default function SettingsPage() {
     if (!canSave) return;
     setPingLoading(l => ({ ...l, [kind]: true }));
     try {
-      const r = await utils.settings.pingCurrent.fetch({ kind });
+      const teamId = (defaultTeamId && defaultTeamId > 0) ? defaultTeamId : undefined;
+      const r = await utils.settings.pingCurrent.fetch({ ...(teamId ? { teamId } : {}), kind });
       setPingRes((prev: any) => ({
         llm: (r as any).llm ?? prev.llm,
         serp: (r as any).serp ?? prev.serp,
@@ -244,9 +246,10 @@ export default function SettingsPage() {
     if (!canSave) return;
     if (!window.confirm("ต้องการลบ LLM_API_KEY + SERP_API_KEY ที่บันทึกไว้หรือไม่?")) return;
     try {
+      const teamId = (defaultTeamId && defaultTeamId > 0) ? defaultTeamId : undefined;
       await Promise.all([
-        resetMut.mutateAsync({ keyType: 'llm' } as any),
-        resetMut.mutateAsync({ keyType: 'serp' } as any),
+        resetMut.mutateAsync({ keyType: 'llm', ...(teamId ? { teamId } : {}) } as any),
+        resetMut.mutateAsync({ keyType: 'serp', ...(teamId ? { teamId } : {}) } as any),
       ]);
       setForm(f => ({ ...f, llmApiKey: "", serpApiKey: "" }));
       toast.success("Reset keys สำเร็จ");
