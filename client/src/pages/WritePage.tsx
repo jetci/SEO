@@ -10,6 +10,7 @@ import {
   Search, CheckCircle2, Sparkles, BookCheck, Save, AlertTriangle, ShieldCheck,
   ChevronLeft, ChevronRight, Target, Loader2, Hash, FileText,
   CalendarDays, Clock, X, RefreshCw, Plus, Wand2, ListOrdered, Type, Eye,
+  Bot, Settings2,
 } from "lucide-react";
 import { trpc } from "@/trpc";
 import { useLocation, useRoute } from "wouter";
@@ -41,10 +42,10 @@ const STEPS: StepDef[] = [
   { n: 7, id: "preview",  label: "ดู + เก็บคลัง",    desc: "SERP preview + Export" },
 ];
 
-const TARGET_DENSITY_PCT = 2;
-const TARGET_SPLIT_MAIN_PCT = 20;
-const TARGET_SPLIT_LONG_PCT = 70;
-const TARGET_SPLIT_LSI_PCT  = 10;
+const TARGET_DENSITY_PCT = 1.15;
+const TARGET_SPLIT_MAIN_PCT = 40;
+const TARGET_SPLIT_LONG_PCT = 40;
+const TARGET_SPLIT_LSI_PCT  = 20;
 
 function mapIntentUiLabel(raw: any): "Informational" | "Transactional" | "Commercial" {
   const inv = String(raw || "").toLowerCase();
@@ -75,13 +76,7 @@ export default function WritePage() {
 
   const w = useArticleWriter({ draftId: urlParams.draft_id || urlDraftIdRaw });
 
-  const filledOnceRef = useRef<{ model: boolean; kw: boolean; draft: boolean }>({ model: false, kw: false, draft: false });
-  useEffect(() => {
-    if (w.settingsQ.data && !filledOnceRef.current.model && w.activeModels.length) {
-      const def = w.activeModels[w.providerDefaultIdx] ?? w.activeModels[0];
-      if (def?.id) { w.setModel(String(def.id)); filledOnceRef.current.model = true; }
-    }
-  }, [w.settingsQ.data, w.activeModels, w.providerDefaultIdx]);
+  const filledOnceRef = useRef<{ kw: boolean; draft: boolean; placeholderWarned: boolean }>({ kw: false, draft: false, placeholderWarned: false });
 
   useEffect(() => {
     const cc: any = (w.q.data as any)?.cluster_context;
@@ -124,7 +119,28 @@ export default function WritePage() {
       if (mdes0 && !w.mdes.trim()) w.setMdes(mdes0);
       filledOnceRef.current.draft = true;
     }
-  }, [(w.q.data as any)?.draft?.id]);
+    // 🚨 [WO-010 งาน2.4] ตรวจจับ Placeholder ใน draft ทันทีที่โหลดมา → แจ้งเตือนชัด ไม่ให้ปนเนื้อหาปกติ
+    if (draftIdActual && !filledOnceRef.current.placeholderWarned) {
+      const d: any = (w.q.data as any).draft;
+      const mdBody = String(d.content || "").trim();
+      const stepStatus = String(d.step_status || '').toLowerCase();
+      const phCount = Number(d.placeholder_section_count || 0) || 0;
+      const hasPh = phCount > 0 || /\[AUTO PLACEHOLDER\s*[—\-]/.test(mdBody) || stepStatus === 'fail';
+      if (hasPh) {
+        w.setWriteHasPlaceholder(true);
+        filledOnceRef.current.placeholderWarned = true;
+        const countText = phCount > 0 ? ` (${phCount} Section)` : '';
+        toast.warning(`⚠️ Draft นี้เขียนไม่สำเร็จรอบก่อน${countText}`, {
+          description: 'มีเนื้อหา [AUTO PLACEHOLDER] ปนอยู่ → ไปที่ Step 4 กด Generate ใหม่ทั้งบทความ หรือ Rewrite แยกแต่ละ Section ที่ผิดปกติ ก่อนพยายาม Publish',
+          duration: 10000,
+          closeButton: true,
+        });
+        if (stepStatus === 'fail') {
+          setTimeout(() => toast.error('❌ รอบก่อน Write Service ล้ม (stepStatus=fail) → แนะนำกด Generate ใหม่เต็มรอบเลย', { duration: 8000 }), 1200);
+        }
+      }
+    }
+  }, [(w.q.data as any)?.draft?.id, (w.q.data as any)?.draft?.step_status, (w.q.data as any)?.draft?.placeholder_section_count]);
 
   async function doPublish(unpublish = false) {
     if (!w.draftIdNum) { toast.error("ต้องมี Draft ID ก่อน Publish (สร้างจาก KCP Keyword card)"); return; }
@@ -201,19 +217,31 @@ export default function WritePage() {
 
   const quotaRows = useMemo(() => {
     const MAIN_KW = String(w.keyword || '').trim();
-    const longTail = MAIN_KW ? [`${MAIN_KW} คืออะไร`, `${MAIN_KW} แนะนำ`, `${MAIN_KW} วิธีเลือก`, `${MAIN_KW} ราคาล่าสุด`, `${MAIN_KW} ปี 2569`] : [];
-    const lsi = MAIN_KW ? [`${MAIN_KW} ดีไหม`, `${MAIN_KW} 2569`, `${MAIN_KW} ที่นิยม`] : [];
+    const pkg: any = (w.q.data as any)?.draft?.research_package || (w.q.data as any)?.research_package || null;
+    const serpLong: string[] = Array.isArray(pkg?.serp_longtail_keywords) ? pkg.serp_longtail_keywords.filter(Boolean).slice(0, 4) : [];
+    const serpLsi: string[] = Array.isArray(pkg?.serp_lsi_keywords) ? pkg.serp_lsi_keywords.filter(Boolean).slice(0, 3) : [];
+    const serpQuestions: string[] = Array.isArray(pkg?.serp_related_questions) ? pkg.serp_related_questions.filter(Boolean).slice(0, 2) : [];
+    const fallbackLong = MAIN_KW ? [`${MAIN_KW} คืออะไร`, `${MAIN_KW} วิธีเลือก`] : [];
+    const fallbackLsi = MAIN_KW ? [`${MAIN_KW} 2569`, `${MAIN_KW} ที่นิยม`] : [];
+    const longTail = serpLong.length > 0 ? serpLong : fallbackLong;
+    const lsi = serpLsi.length > 0 ? serpLsi : (serpQuestions.length > 0 ? serpQuestions : fallbackLsi);
     const wc = Math.max(1000, Number(w.targetWordTotal) || 0);
     const cap = Math.max(1, Math.round(wc * (TARGET_DENSITY_PCT / 100)));
     const mainN = Math.max(1, Math.round(cap * TARGET_SPLIT_MAIN_PCT / 100));
-    const longN = Math.max(1, Math.round(cap * TARGET_SPLIT_LONG_PCT / 100) / Math.max(1, longTail.length));
-    const lsiN  = Math.max(1, Math.round(cap * TARGET_SPLIT_LSI_PCT  / 100) / Math.max(1, lsi.length));
+    const longPoolN = Math.round(cap * TARGET_SPLIT_LONG_PCT / 100);
+    const lsiPoolN = Math.round(cap * TARGET_SPLIT_LSI_PCT  / 100);
     const rows: any[] = [];
-    if (MAIN_KW) rows.push({ kw: MAIN_KW, typeLabel: '🔑 คีย์หลัก', n: Math.max(1, Math.round(mainN)) });
-    longTail.forEach(kw => rows.push({ kw, typeLabel: '🗂 Long-tail', n: Math.max(1, Math.round(longN)) }));
-    lsi.forEach(kw => rows.push({ kw, typeLabel: '🧠 LSI', n: Math.max(1, Math.round(lsiN)) }));
+    if (MAIN_KW) rows.push({ kw: MAIN_KW, typeLabel: '🔑 คีย์หลัก', n: Math.max(1, Math.min(12, Math.round(mainN))) });
+    if (longTail.length > 0) {
+      const perLong = Math.max(1, Math.ceil(longPoolN / longTail.length));
+      longTail.forEach(kw => rows.push({ kw, typeLabel: '🗂 Long-tail', n: perLong }));
+    }
+    if (lsi.length > 0) {
+      const perLsi = Math.max(1, Math.ceil(lsiPoolN / lsi.length));
+      lsi.forEach(kw => rows.push({ kw, typeLabel: '🧠 LSI', n: perLsi }));
+    }
     return rows;
-  }, [w.keyword, w.targetWordTotal]);
+  }, [w.keyword, w.targetWordTotal, w.q.data]);
   const quotaTotal = quotaRows.reduce((a, b) => a + b.n, 0);
   const capRef = Math.max(1, Math.round((Math.max(Number(w.targetWordTotal) || 0, Number(w.wordCount) || 0) * TARGET_DENSITY_PCT) / 100));
   const quotaOverCap = quotaTotal > capRef + Math.round(capRef * 0.2);
@@ -340,32 +368,49 @@ export default function WritePage() {
                 <Separator />
                 <div>
                   <div className="flex items-center gap-2 mb-3 flex-wrap">
-                    <Label className="!text-xs !font-semibold">เลือก AI Model</Label>
-                    <Badge className={`!border ${w.providerAccent}`}>🔌 API Provider: {w.providerDisplayName}</Badge>
+                    <Label className="!text-xs !font-semibold">AI Model (ล็อกจาก Settings)</Label>
+                    <Badge className={`!border ${w.providerAccent}`}>🔌 {w.providerDisplayName}</Badge>
                     {!w.settingsQ.isLoading && !w.hasLlmKey && (
                       <Badge className="!bg-rose-50 !text-rose-700 !border-rose-200">⚠️ ยังไม่ได้บันทึก LLM API Key</Badge>
                     )}
                   </div>
-                  <div className={`grid grid-cols-1 ${w.activeModels.length >= 3 ? 'md:grid-cols-3' : w.activeModels.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-3`}>
-                    {w.activeModels.map((m) => (
-                      <label
-                        key={m.id}
-                        className={`border rounded-xl p-4 cursor-pointer transition ${
-                          w.model === m.id ? 'ring-2 ring-amber-400 border-amber-300 bg-amber-50/60' : 'hover:bg-stone-50 border-stone-200 bg-white'
-                        }`}
-                      >
-                        <input type="radio" className="sr-only" name="ai-model" value={m.id} checked={w.model === m.id} onChange={() => w.setModel(m.id)} />
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="text-[14px] font-bold text-stone-800">{m.label}</div>
-                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                              <span className={`text-[10.5px] px-2 py-0.5 rounded text-white ${m.cls}`}>{m.badge}</span>
-                              <span className="text-[11px] text-stone-500">💲 ~${m.per1m}/1M tokens</span>
-                            </div>
+                  <div className="border rounded-xl p-4 bg-gradient-to-br from-sky-50 to-white border-sky-200">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-sky-100 border border-sky-200 grid place-items-center text-sky-700 shrink-0">
+                          <Bot className="size-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[12px] text-sky-700 font-semibold uppercase tracking-wider mb-0.5">ใช้ Model อัตโนมัติจาก Settings</div>
+                          <div className="text-[15px] font-bold text-stone-900 truncate font-mono">
+                            {w.activeModels.find(m => m.id === w.model)?.label || w.model}
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 flex-wrap">
+                            {(() => {
+                              const m = w.activeModels.find(mm => mm.id === w.model);
+                              if (!m) return null;
+                              return (
+                                <>
+                                  <span className={`text-[10.5px] px-2 py-0.5 rounded text-white ${m.cls}`}>{m.badge}</span>
+                                  <span className="text-[11px] text-stone-500">💲 ~${m.per1m}/1M tokens</span>
+                                  <span className="text-[11px] text-stone-400 font-mono truncate max-w-[280px]">id: {m.id}</span>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
-                      </label>
-                    ))}
+                      </div>
+                      <a
+                        href="/settings"
+                        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-sky-700 hover:text-sky-900 bg-white border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50 transition shrink-0"
+                      >
+                        <Settings2 className="size-3.5" />
+                        เปลี่ยน Model ที่ Settings
+                      </a>
+                    </div>
+                    <p className="text-[11.5px] text-stone-500 leading-relaxed mt-3 pt-3 border-t border-sky-100">
+                      💡 ตั้งค่า Model ครั้งเดียวที่หน้า Settings → ระบบจะใช้อัตโนมัติทุกบทความ ไม่ต้องเลือกซ้ำ ลดความเสี่ยงเลือก Model ผิด (prefix ไม่ตรงกับ provider)
+                    </p>
                   </div>
                 </div>
               </CardContent>

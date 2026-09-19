@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import MainDashboardShell from "@/layouts/MainDashboardShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,11 +8,52 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   Key, Server, ShieldCheck, AlertTriangle, CheckCircle2, XCircle,
-  Globe2, Languages, Loader2, DollarSign, RefreshCw, Edit3
+  Globe2, Languages, Loader2, DollarSign, RefreshCw, Edit3, Bot
 } from "lucide-react";
 import { trpc } from "@/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+
+type AIModelDef = { id: string; label: string; badge: string; cls: string; per1m: number };
+type LLMProviderKey = "openrouter" | "openai" | "anthropic" | "google";
+const PROVIDER_CATALOG: Record<LLMProviderKey, { name: string; models: AIModelDef[]; defaultIdx: number }> = {
+  openrouter: {
+    name: "OpenRouter (รวมหลาย Provider)",
+    defaultIdx: 0,
+    models: [
+      { id: "openai/gpt-4o-mini",              label: "GPT-4o mini (โทนต่าง ไม่เหมือน AI)", badge: "ค่าเริ่มต้น / คุ้มค่า", cls: "bg-emerald-700",per1m: 0.15 },
+      { id: "anthropic/claude-3.5-sonnet",     label: "Claude Sonnet (ไทยดี สมดุล)",     badge: "แนะนำ",   cls: "bg-amber-700",  per1m: 3 },
+      { id: "google/gemini-1.5-flash",         label: "Gemini 1.5 Flash",                badge: "ทดลอง",   cls: "bg-sky-700",    per1m: 0.075 },
+      { id: "google/gemini-2.0-flash-exp:free",label: "Gemini 2.0 Flash (Free Tier)",   badge: "ฟรี (อาจมี Limit)", cls: "bg-purple-700", per1m: 0.075 },
+    ],
+  },
+  anthropic: {
+    name: "Anthropic Claude",
+    defaultIdx: 0,
+    models: [
+      { id: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (ไทยดี สมดุล)", badge: "ค่าเริ่มต้น / แนะนำ", cls: "bg-amber-700", per1m: 3 },
+      { id: "claude-3-opus-20240229",     label: "Claude 3 Opus (อันดับสูง สร้างสรรค์)", badge: "ระดับสูง", cls: "bg-orange-700", per1m: 15 },
+    ],
+  },
+  openai: {
+    name: "OpenAI GPT",
+    defaultIdx: 0,
+    models: [
+      { id: "gpt-4o-mini",   label: "GPT-4o mini (โทนต่าง ไม่เหมือน AI)", badge: "ค่าเริ่มต้น / สำรอง", cls: "bg-emerald-700", per1m: 0.15 },
+      { id: "gpt-4o",        label: "GPT-4o (รูปภาพ+ข้อความ)",                 badge: "ระดับสูง", cls: "bg-green-700",   per1m: 2.5 },
+      { id: "gpt-4.1-mini",  label: "GPT-4.1 mini (คิดเชิงลึก เร็ว)",          badge: "รุ่นใหม่", cls: "bg-teal-700",    per1m: 0.40 },
+    ],
+  },
+  google: {
+    name: "Google Gemini",
+    defaultIdx: 0,
+    models: [
+      { id: "gemini-2.0-flash-exp", label: "Gemini 2.0 Flash (Free Tier)", badge: "ค่าเริ่มต้น", cls: "bg-sky-700",     per1m: 0.075 },
+      { id: "gemini-1.5-pro",       label: "Gemini 1.5 Pro (คิดลึกหนัก)",   badge: "ระดับสูง", cls: "bg-blue-700",    per1m: 1.25 },
+      { id: "gemini-1.5-flash",     label: "Gemini 1.5 Flash",              badge: "ทดลอง",    cls: "bg-indigo-700",  per1m: 0.075 },
+    ],
+  },
+};
 
 const LLM_PROVIDERS = [
   { key: "openrouter", label: "OpenRouter (แนะนำ)", hint: "รองรับทุกโมเดล · sk-or-v1-..." },
@@ -52,9 +93,13 @@ export default function SettingsPage() {
     onSuccess: (data) => {
       if (data?.settings) {
         const s = data.settings as any;
+        const provKey = (s.llmProvider || "openrouter") as LLMProviderKey;
+        const prov = PROVIDER_CATALOG[provKey] || PROVIDER_CATALOG.openrouter;
+        const fallbackModel = prov.models[prov.defaultIdx]?.id;
         setForm(f => ({
           ...f,
           llmProvider: s.llmProvider || f.llmProvider,
+          llmDefaultModel: (s.llmDefaultModel && prov.models.find(m => m.id === s.llmDefaultModel)) ? s.llmDefaultModel : (fallbackModel || f.llmDefaultModel),
           serpProvider: s.serpProvider || f.serpProvider,
           countryCode: s.countryCode || f.countryCode,
           langCode: s.langCode || f.langCode,
@@ -128,6 +173,7 @@ export default function SettingsPage() {
 
   const [form, setForm] = useState({
     llmProvider: "openrouter",
+    llmDefaultModel: PROVIDER_CATALOG.openrouter.models[PROVIDER_CATALOG.openrouter.defaultIdx].id,
     llmApiKey: "",
     serpProvider: "serper",
     serpApiKey: "",
@@ -136,6 +182,10 @@ export default function SettingsPage() {
     validatePing: true,
     billingLimitUsd: "" as number | "",
   });
+  const activeModels = useMemo(() => {
+    const prov = PROVIDER_CATALOG[form.llmProvider as LLMProviderKey];
+    return prov ? prov.models : [];
+  }, [form.llmProvider]);
 
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
   const [editingLlmKey, setEditingLlmKey] = useState(false);
@@ -147,9 +197,13 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!settings.data?.settings) return;
     const s = settings.data.settings as any;
+    const provKey = (s.llmProvider || "openrouter") as LLMProviderKey;
+    const prov = PROVIDER_CATALOG[provKey] || PROVIDER_CATALOG.openrouter;
+    const fallbackModel = prov.models[prov.defaultIdx]?.id;
     setForm(f => ({
       ...f,
       llmProvider: s.llmProvider || f.llmProvider,
+      llmDefaultModel: (s.llmDefaultModel && prov.models.find(m => m.id === s.llmDefaultModel)) ? s.llmDefaultModel : (fallbackModel || f.llmDefaultModel),
       serpProvider: s.serpProvider || f.serpProvider,
       countryCode: s.countryCode || f.countryCode,
       langCode: s.langCode || f.langCode,
@@ -217,6 +271,7 @@ export default function SettingsPage() {
     try {
       const payload: any = {
         llmProvider: form.llmProvider as any,
+        llmDefaultModel: form.llmDefaultModel,
         llmApiKey: form.llmApiKey,
         serpProvider: form.serpProvider as any,
         serpApiKey: form.serpApiKey || undefined,
@@ -335,7 +390,11 @@ export default function SettingsPage() {
                     </div>
                     <select
                       value={form.llmProvider}
-                      onChange={e => setForm(f => ({ ...f, llmProvider: e.target.value }))}
+                      onChange={e => {
+                        const newProv = e.target.value as LLMProviderKey;
+                        const prov = PROVIDER_CATALOG[newProv] || PROVIDER_CATALOG.openrouter;
+                        setForm(f => ({ ...f, llmProvider: newProv, llmDefaultModel: prov.models[prov.defaultIdx]?.id || f.llmDefaultModel }));
+                      }}
                       disabled={!canSave || saveMut.isPending}
                       className="h-10 w-full rounded-lg border border-stone-300 bg-white pl-3 pr-9 text-[13.5px] text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 disabled:opacity-60"
                     >
@@ -345,6 +404,36 @@ export default function SettingsPage() {
                     </select>
                     <p className="text-[11.5px] text-stone-500 leading-relaxed min-h-[16px]">{LLM_PROVIDERS.find(p => p.key === form.llmProvider)?.hint}</p>
                   </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 min-h-[28px] flex-wrap">
+                      <Label className="!text-[12px] uppercase tracking-wider text-stone-500 !mb-0 flex items-center gap-1">
+                        <Bot className="size-3" /> Default Model (ใช้อัตโนมัติทุกบทความ)
+                      </Label>
+                      <Badge variant="outline" className="!rounded-full !text-[10.5px] !h-5 !px-2 !bg-sky-50 !text-sky-800 !border-sky-200">
+                        Single Source of Truth
+                      </Badge>
+                    </div>
+                    <select
+                      value={form.llmDefaultModel}
+                      onChange={e => setForm(f => ({ ...f, llmDefaultModel: e.target.value }))}
+                      disabled={!canSave || saveMut.isPending || activeModels.length === 0}
+                      className="h-10 w-full rounded-lg border border-stone-300 bg-white pl-3 pr-9 text-[13.5px] text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 disabled:opacity-60"
+                    >
+                      {activeModels.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.label} · ${m.per1m}/1M tokens {m.badge ? `(${m.badge})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11.5px] text-stone-500 leading-relaxed min-h-[16px]">
+                      ระบบจะใช้ Model นี้อัตโนมัติในหน้าเขียนบทความ ไม่ต้องเลือกซ้ำทุกครั้ง (ถ้าอยากเปลี่ยนกลับมาที่หน้าตั้งค่า)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="h-px w-full bg-stone-100" />
+
+                <div className="grid grid-cols-1 md:grid-cols-1 gap-6 items-start">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2 min-h-[28px] flex-wrap">
                       <Label className="!text-[12px] uppercase tracking-wider text-stone-500 !mb-0">LLM API Key</Label>

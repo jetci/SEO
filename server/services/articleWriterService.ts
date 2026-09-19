@@ -402,7 +402,7 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
             ? `\n[URGENT GUARD #${attempt}] PREVIOUS ${attempt} ATTEMPT${attempt>1?'S':''} RETURNED TOO SHORT / CUT-OFF / SUMMARY-ONLY CONTENT. THAI LANGUAGE SUBWORD TOKENIZATION BUDGET CORRECTION ACTIVE — YOU MUST WRITE FULL 3 PARAGRAPHS, 3-4 SENTENCES EACH, INCLUDE THE CASE STUDY AND BEST PRACTICES. MINIMUM ${MIN_BODY_CHARS} CHARACTERS IS MANDATORY. DO NOT STOP EARLY.\n`
             : '';
           const raw = await llm.chatRaw(guardPrefix + system, guardPrefix + user, {
-            maxTokens: Math.max(2800, s.word_target_min * 8),
+            maxTokens: Math.min(4000, Math.max(2800, s.word_target_min * 8)),
             temperature: temp,
             model: useModel,
           });
@@ -443,6 +443,7 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
           msg.startsWith('[LLM_MODEL_NOT_FOUND_') ||
           msg.startsWith('[LLM_MODEL_VALIDATION_');
         const isRate = msg.startsWith('[LLM_RATE_LIMIT_');
+        const isTimeout = /(timeout|TIMEOUT|AbortError|aborted|ETIMEDOUT|ECONNRESET|ECONNABORTED|hang up/i.test(msg);
 
         let reasonTh: string;
         let actionTh: string;
@@ -458,9 +459,12 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
         } else if (isRate) {
           reasonTh = 'LLM Rate Limit — โมเดลจำกัดจำนวนคำขอต่อนาที';
           actionTh = 'รอประมาณ 30-60 วินาที แล้วกด Generate อีกครั้ง (ปัญหาชั่วคราว Retry ได้)';
+        } else if (isTimeout) {
+          reasonTh = 'LLM Timeout — โมเดลตอบช้าเกินไป (เกิน 180 วินาที)';
+          actionTh = 'ทางเลือก 1) ลดจำนวนคำเป้าหมายใน Section นี้ลง (3500→2500) 2) เปลี่ยน Model ที่เร็วกว่า (GPT-4o mini / Claude Sonnet) 3) กด Generate ใหม่อีก 1-2 รอบ (บางครั้ง Network ตอบช้าแค่รอบเดียว)';
         } else {
-          reasonTh = 'LLM transient error / Network timeout';
-          actionTh = 'ลองกด Generate ใหม่ในอีกไม่กี่วินาที หากซ้ำหลายครั้ง ให้ตรวจสอบ Internet หรือเปลี่ยน Model';
+          reasonTh = 'LLM Transient Network Error — ปัญหาเครือข่ายชั่วคราว';
+          actionTh = 'ลองกด Generate ใหม่ในอีก 10-20 วินาที หากซ้ำหลายครั้ง → ตรวจสอบอินเทอร์เน็ต หรือดู Status Page ของ LLM Provider';
         }
 
         const placeholders: string[] = [];

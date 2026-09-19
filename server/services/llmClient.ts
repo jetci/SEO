@@ -188,7 +188,7 @@ export class LlmService {
     const temperature = inOpts.temperature ?? 0.2;
     const maxTokens = inOpts.maxTokens ?? 4096;
     const model = inOpts.model ?? PROVIDER_DEFAULT_MODELS[this.settings.llmProvider];
-    const timeoutMs = inOpts.timeoutMs ?? 60000;
+    const timeoutMs = inOpts.timeoutMs ?? 180000;
     const endpointName = inOpts.jsonMode ? 'chat.structured' : 'chat.raw';
     const MAX_ATTEMPTS = 2;
     const jitter = (baseMs: number): number => Math.max(100, Math.round(baseMs * (0.7 + Math.random() * 0.6)));

@@ -137,6 +137,16 @@ export function useArticleWriter(props: { draftId: string | number | undefined }
   const [model, setModelState] = useState<string>(
     PROVIDER_CATALOG.openrouter.models[PROVIDER_CATALOG.openrouter.defaultIdx].id
   );
+  useEffect(() => {
+    if (!settingsQ.data?.settings) return;
+    const s = settingsQ.data.settings as any;
+    const provider = PROVIDER_CATALOG[activeProvider];
+    if (s.llmDefaultModel && provider.models.find(m => m.id === s.llmDefaultModel)) {
+      setModelState(s.llmDefaultModel);
+    } else {
+      setModelState(provider.models[provider.defaultIdx].id);
+    }
+  }, [activeProvider, settingsQ.data?.settings?.llmDefaultModel]);
   const [targetWordTotal, setTargetWordTotal] = useState<number>(3500);
   const [outlineSecs, setOutlineSecs] = useState<OutlineRow[]>([]);
   const [sources, setSources] = useState<SourceRow[]>([]);
