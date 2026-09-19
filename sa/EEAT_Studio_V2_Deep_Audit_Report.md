@@ -73,7 +73,7 @@
   - redirect /login ทันทีเมื่อ me.data.isLoggedIn===false
 - **เอกสารจัดเก็บที่:** `client/src/App.tsx`
 
-### GUEST-02 — route /members และ /teams redirect ไปหน้าแรกตายตัว = ฟีเจอร์ค้าง
+### ✅ [CLOSED] GUEST-02 — route /members และ /teams redirect ไปหน้าแรกตายตัว = ฟีเจอร์ค้าง
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -122,7 +122,7 @@
   - บันทึกจำนวน section placeholder ให้ Admin Audit เห็นคุณภาพจริง
 - **เอกสารจัดเก็บที่:** `server/services/articleWriterService.ts (L384-395)`
 
-### WRITER-04 — getById/getActive ซ่อน error เป็น null — UI แยกไม่ออก 'ไม่มีสิทธิ์' vs 'ไม่มีข้อมูล'
+### ✅ [CLOSED] WRITER-04 — getById/getActive ซ่อน error เป็น null — UI แยกไม่ออก 'ไม่มีสิทธิ์' vs 'ไม่มีข้อมูล'
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -159,7 +159,7 @@
   - ครอบ <RequireAdmin> หรือเช็ค user.role==='admin' แล้ว render 'ไม่มีสิทธิ์'
 - **เอกสารจัดเก็บที่:** `client/src/pages/AdminAuditPage.tsx`
 
-### ADMIN-03 — นิยาม isAdmin ฝั่ง client ไม่ตรงกับฝั่ง server
+### ✅ [CLOSED] ADMIN-03 — นิยาม isAdmin ฝั่ง client ไม่ตรงกับฝั่ง server
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -170,7 +170,7 @@
   - กำหนดนิยาม admin capability ให้ตรงกันสองฝั่ง เอกสารแยก role (ระบบ) vs permission (ทีม) ให้ชัด
 - **เอกสารจัดเก็บที่:** `client/src/pages/SettingsPage.tsx (L50); MainDashboardShell.tsx (L106)`
 
-### ADMIN-04 — AES key ใช้ SESSION_SECRET ร่วมกับ session JWT — ผูก 2 หน้าที่เข้าด้วยกัน
+### ✅ [CLOSED] ADMIN-04 — AES key ใช้ SESSION_SECRET ร่วมกับ session JWT — ผูก 2 หน้าที่เข้าด้วยกัน
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -215,7 +215,7 @@
 
 ## Database (Drizzle/MySQL)
 
-### DB-01 — schema.ts มี 13 tables แต่คอมเมนต์หัวไฟล์ยังเขียน '8 Tables ONLY'
+### ✅ [CLOSED] DB-01 — schema.ts มี 13 tables แต่คอมเมนต์หัวไฟล์ยังเขียน '8 Tables ONLY'
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -236,7 +236,7 @@
   - เพิ่ม test เขียน >64KB ยืนยันบันทึก/อ่านครบ
 - **เอกสารจัดเก็บที่:** `db/schema.ts (articles.content)`
 
-### DB-03 — loadSettingsForTeam ลบ row ที่ decrypt ไม่ได้ทิ้งอัตโนมัติ
+### ✅ [CLOSED] DB-03 — loadSettingsForTeam ลบ row ที่ decrypt ไม่ได้ทิ้งอัตโนมัติ
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -259,7 +259,7 @@
   - เปลี่ยนเป็น httpBatchLink รวม request ลด race+latency แล้วปรับคอมเมนต์
 - **เอกสารจัดเก็บที่:** `client/src/trpc.ts`
 
-### API-02 — auth race handling ซับซ้อนเกิน — 4-5 ชั้น interceptor แก้อาการไม่แก้เหตุ
+### ✅ [CLOSED] API-02 — auth race handling ซับซ้อนเกิน — 4-5 ชั้น interceptor แก้อาการไม่แก้เหตุ
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -282,7 +282,7 @@
 
 ## UX / UI
 
-### UX-01 — redirect ใช้ setTimeout 500ms เดา — กระพริบ/หลุดล็อกอินชั่วคราว
+### ✅ [CLOSED] UX-01 — redirect ใช้ setTimeout 500ms เดา — กระพริบ/หลุดล็อกอินชั่วคราว
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -291,7 +291,7 @@
   - ผูก redirect กับสถานะจริง me.isSuccess && !isLoggedIn ผ่าน RequireAuth
 - **เอกสารจัดเก็บที่:** `client/src/layouts/MainDashboardShell.tsx (L94-98)`
 
-### UX-02 — เมนู 'ตั้งค่าระบบ' และ 'Admin Audit' แสดงให้ทุก role เห็น
+### ✅ [CLOSED] UX-02 — เมนู 'ตั้งค่าระบบ' และ 'Admin Audit' แสดงให้ทุก role เห็น
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
@@ -313,7 +313,7 @@
 
 ## หนี้ทางเทคนิค / ไฟล์ปนใน repo
 
-### DEBT-01 — ไฟล์ debug/log/temporary หลุดเข้ามาใน repo
+### ✅ [CLOSED] DEBT-01 — ไฟล์ debug/log/temporary หลุดเข้ามาใน repo
 
 - **ความร้ายแรง:** 🟡 กลาง
 - **ปัญหาที่ตรวจพบ:**
