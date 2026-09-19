@@ -217,14 +217,14 @@ export default function MainDashboardShell({
 
         <SidebarInset className="!bg-transparent">
           <header className="sticky top-0 z-30 border-b border-stone-200 bg-[#fbf8f4]/85 backdrop-blur-sm shadow-[0_1px_0_0_rgba(0,0,0,0.02),0_4px_16px_-10px_rgba(180,83,9,0.15)]">
-            <div className="flex items-center gap-4 px-8 py-4">
-              <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-4 px-8 py-4">
+              <div className="flex-1 min-w-[320px]">
                 <h1 className="text-[22px] font-bold text-stone-900 tracking-tight font-[Playfair_Display,_serif]" data-testid="page-title">{headerTitle}</h1>
                 {headerSubtitle && (
-                  <p className="text-[13px] text-stone-600 mt-1">{headerSubtitle}</p>
+                  <p className="text-[13px] text-stone-600 mt-1 break-words">{headerSubtitle}</p>
                 )}
               </div>
-              <div className="flex items-center gap-2" data-testid="header-actions">
+              <div className="flex flex-1 min-w-0 items-center justify-end gap-2" data-testid="header-actions">
                 {isLoggedIn ? headerActions : null}
               </div>
             </div>
