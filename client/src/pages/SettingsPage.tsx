@@ -538,10 +538,10 @@ export default function SettingsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <AlertTriangle className="size-4 text-amber-600 shrink-0" />
-                      <p className="font-semibold text-[13.5px] text-stone-800">Ping validate ก่อนบันทึก</p>
+                      <p className="font-semibold text-[13.5px] text-stone-800">ตรวจสอบ Key ก่อนบันทึก (Ping Validate)</p>
                     </div>
                     <p className="text-[11.5px] text-stone-500 leading-relaxed">
-                      เมื่อเปิด ระบบจะลอง call test ping ถึง providers ทุกตัว ก่อน commit การบันทึก — ถ้าปิด จะบันทึกโดยไม่ตรวจสอบว่า Key ถูกต้องหรือไม่
+                      เปิด → ระบบจะ call test ping ถึง Provider ก่อน commit บันทึกทุกครั้ง (ปิด → บันทึกเลย ไม่ตรวจสอบ Key ถูก/ผิดเลย เหมาะกับเครือข่ายอินเทอร์เน็ตมีปัญหา หรือใส่ Key ไว้ก่อน เดี๋ยวมาแก้)
                     </p>
                   </div>
                   <div className="shrink-0">
@@ -594,6 +594,60 @@ export default function SettingsPage() {
                   <p className="text-3xl font-bold font-mono text-emerald-900">${billingUsd}</p>
                   <p className="text-[12px] text-emerald-700/80 mt-1">{billingCalls} API calls</p>
                 </div>
+
+                <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <DollarSign className="size-3.5 text-amber-700 shrink-0" />
+                    <p className="font-semibold text-[13px] text-amber-950">Monthly Billing Limit (USD · SET-04)</p>
+                    <span className="ml-auto text-[10.5px] text-amber-700/80">เว้นว่าง = ไม่จำกัด</span>
+                  </div>
+                  <div>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        placeholder="เช่น 10.00 = หยุดเมื่อใช้เกิน 10 USD เดือนนี้"
+                        value={form.billingLimitUsd === 0 ? "" : form.billingLimitUsd}
+                        onChange={e => setForm(f => ({ ...f, billingLimitUsd: (e.target.value && e.target.value.trim() !== "") ? Number(e.target.value) as any : "" }))}
+                        disabled={!canSave || saveMut.isPending}
+                        className="!h-10 font-mono text-[13px] pr-28"
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[12px]">
+                        <span className="text-stone-500 font-semibold">USD</span>
+                      </div>
+                    </div>
+                    {(() => {
+                      const used = Number(billingUsd || 0);
+                      const limit = Number(form.billingLimitUsd);
+                      if (!limit || !Number.isFinite(limit) || limit <= 0) {
+                        return <p className="text-[11.5px] text-stone-500 mt-2 leading-relaxed">⚠️ ไม่ได้ตั้ง Limit — ใช้งานได้ไม่จำกัด</p>;
+                      }
+                      const pct = Math.max(0, Math.min(100, +((used / limit) * 100).toFixed(1)));
+                      const over = used > limit;
+                      return (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex items-center justify-between text-[11.5px]">
+                            <span className={over ? "text-rose-700 font-semibold" : "text-stone-600"}>
+                              {over ? "🚨 เกิน Limit แล้ว" : "Usage ปัจจุบัน"}
+                            </span>
+                            <span className="font-mono font-bold text-stone-800">{used.toFixed(2)} / {limit.toFixed(2)} USD · {pct}%</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-stone-200 overflow-hidden">
+                            <div
+                              className={`h-full ${over ? "bg-gradient-to-r from-rose-500 to-rose-600" : "bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-400"} transition-all duration-300`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <p className="text-[10.5px] text-stone-500 leading-relaxed">
+                            * Enforcement บังคับหยุด LLM/SERP calls หากเกิน Limit จะต้องติดตั้งใน llmClient.ts + researchAudit แยก (Scope SET-04 ปัจจุบัน = Save/Load UI เท่านั้น)
+                          </p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   {providers.length === 0 ? (
                     <p className="text-[12px] text-stone-500 text-center py-6">ยังไม่มี usage ใดๆ สำหรับเดือนนี้</p>
