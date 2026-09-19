@@ -199,11 +199,12 @@ export function useAuth() {
   return {
     me, user, isLoggedIn,
     isAuthenticated: isLoggedIn,
-    // ============================================================
-    // FIX #1a: loading exported to MainDashboardShell for redirect guard
-    // loading = isLoading OR (cache not fresh AND we need server resolution AND no data yet)
-    // ============================================================
-    loading: me.isLoading || me.isFetching || (!loggedInData && !cacheFresh && !me.error),
+    // ✅ FIX Infinite Loading (CT-02 EMERGENCY 2026-09-20): old condition 3 (!loggedInData && !cacheFresh && !me.error)
+    //     = TRUE forever when auth.me returned {isLoggedIn:false, user:null} (NO SESSION yet)
+    //     → loading=true forever → GuardSpinner never exits → Redirect /login NEVER fires.
+    // NEW: additionally require !me.data (only true WHILE query is IN FLIGHT, not AFTER it resolved with negative answer)
+    //     → After query resolves (data exists, even isLoggedIn=false), loading=false → RequireAuth can redirect to Login.
+    loading: me.isLoading || me.isFetching || (!loggedInData && !cacheFresh && !me.error && !me.data),
     error: requireLoginMsg,
     signInDev, signOut, loginWithMock, logout: signOut,
     refetch: () => me.refetch(),
