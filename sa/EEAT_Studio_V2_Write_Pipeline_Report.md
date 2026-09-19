@@ -67,7 +67,7 @@
 ### WP-B1 — fallback placeholder ยังนับเป็น draft สำเร็จ → ผู้ใช้เผลอ publish เนื้อหาปลอม
 
 - **ความร้ายแรง:** 🔴 วิกฤต
-- **สถานะ:** ยังอยู่ในโค้ด (articleWriterService L381-402)
+- **สถานะ:** ✅ [CLOSED] (แก้ไขแล้วใน CT-01)
 - **ปัญหาที่ตรวจพบ:**
   - LLM ล้มครบ 5/5 ต่อ section → ใส่ '[AUTO PLACEHOLDER]' + template คงที่
   - placeholder ยาวพอผ่าน MIN_BODY_CHARS จึงนับ done, status=draft ปกติ
@@ -175,7 +175,7 @@
 ## Checklist แก้ไข (เรียงลำดับทำ)
 
 1. **ยืนยันชั้น deploy ก่อน (WP-D1):** เทียบ checksum โค้ดบน VPS กับ repo + clear tsx cache + restart ถ้าไม่ตรง deploy ใหม่แล้วทดสอบซ้ำก่อนแก้โค้ด
-2. **WP-B1:** placeholder = failed ไม่ใช่ done + บล็อก publish เมื่อมี placeholder
+2. **WP-B1 (CT-01) ✅:** placeholder = failed ไม่ใช่ done + บล็อก publish เมื่อมี placeholder (สถานะ: ปิดงานแล้ว)
 3. **WP-B2:** บังคับ createDraft ต้องมี research package จริง + แสดงสถานะ research ต่อ keyword
 4. **WP-B3:** onboarding LLM key + แปลง NO_KEY/FORBIDDEN เป็นข้อความไทยชี้ทาง Settings
 5. **WP-A1:** เปลี่ยน ### ใน fallback เป็น decorative label + แยก outline heading ออกจาก body
