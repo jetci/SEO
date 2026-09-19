@@ -107,8 +107,8 @@ export function useAuth() {
     refetchOnWindowFocus: false,
     refetchOnMount: true,
     refetchOnReconnect: false,
-    staleTime: 1000 * 30,
-    cacheTime: 1000 * 60 * 5,
+    staleTime: 1000 * 60 * 3,
+    cacheTime: 1000 * 60 * 10,
   });
 
   const devSignin = trpc.auth.devSignin.useMutation();

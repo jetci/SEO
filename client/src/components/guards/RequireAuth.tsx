@@ -18,8 +18,8 @@ type RequireAuthProps = {
 export default function RequireAuth({ children, requiredRole }: RequireAuthProps) {
   const { loading, isLoggedIn, user } = useAuth();
 
-  if (loading) return <GuardSpinner />;
-  if (!isLoggedIn) return <Redirect to="/login" replace={true} />;
+  if (loading && !isLoggedIn) return <GuardSpinner />;
+  if (!loading && !isLoggedIn) return <Redirect to="/login" replace={true} />;
 
   if (requiredRole === 'admin') {
     const isAdmin = user?.role === 'admin';
