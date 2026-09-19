@@ -1,6 +1,6 @@
 // EEAT Studio V2 · tRPC React Client + QueryClient setup
 // Dependencies: @trpc/client + @trpc/react-query + @tanstack/react-query v4
-import { createTRPCReact, httpLink } from '@trpc/react-query';
+import { createTRPCReact, httpBatchLink } from '@trpc/react-query';
 import { QueryClient } from '@tanstack/react-query';
 import type { AppRouter } from '../../server/index';
 
@@ -19,7 +19,7 @@ export const API_BASE_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://lo
 // auth.me query returns error code → redirect. Valid session = auth.me succeeds BEFORE
 // any race 401 can falsely logout user.
 // Intercepted at 2 levels ONLY (kept minimal post-2K):
-//   (a) httpLink fetch wrapper resp.status === 401/403
+//   (a) httpBatchLink(max=10) fetch wrapper resp.status === 401/403
 //   (b) QueryClient.defaultOptions queries + mutations onError
 // ======================================================================
 function globalOnAny401OrForbidden(errCode: string, errMessage: string = "") {
@@ -49,19 +49,18 @@ export const trpc = createTRPCReact<AppRouter>({
 export function getTrpcClientConfig() {
   return {
     links: [
-      httpLink({
+      httpBatchLink({
         url: '/api/trpc',
+        maxURLLength: 2083,
         async fetch(url: any, options: any = {}) {
           try {
             const resp = await fetch(url as any, { ...options, credentials: 'include' });
-            // PHASE 2J: Even HTTP-level 401 (before tRPC JSON body parses) → redirect
             if (resp.status === 401 || resp.status === 403) {
               globalOnAny401OrForbidden(resp.status === 401 ? "UNAUTHORIZED" : "FORBIDDEN",
                 `HTTP ${resp.status} on ${String(url).slice(0, 120)}`);
             }
             return resp;
           } catch (e) {
-            // Network-level error: propagate, not 401
             throw e;
           }
         },

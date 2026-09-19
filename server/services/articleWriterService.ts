@@ -414,8 +414,12 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
           lastErr = new Error(`attempt ${attempt + 1}/${MAX_ATTEMPTS} LLM API failed: ${msg}`);
           const isAuth = msg.startsWith('[LLM_AUTH_INVALID_');
           const isCredit = msg.startsWith('[LLM_CREDIT_EXHAUSTED_');
-          // CT-01 Fast fail — auth/credit wrong → all future attempts will also fail. Don't waste MAX_ATTEMPTS.
-          if (isAuth || isCredit) break;
+          // CT-01 Fast fail — auth/credit/model wrong → all future attempts will also fail. Don't waste MAX_ATTEMPTS.
+          const isModelInvalid =
+            msg.startsWith('[LLM_MODEL_INVALID_') ||
+            msg.startsWith('[LLM_MODEL_NOT_FOUND_') ||
+            msg.startsWith('[LLM_MODEL_VALIDATION_');
+          if (isAuth || isCredit || isModelInvalid) break;
         }
         if (attempt < MAX_ATTEMPTS - 1) {
           const baseBackoff = attempt === 0 ? 2000 : attempt === 1 ? 5000 : attempt === 2 ? 15000 : 30000;

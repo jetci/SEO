@@ -20,9 +20,39 @@ export type LlmUsage = { input_tokens: number; output_tokens: number };
 export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   openrouter: 'openai/gpt-4o-mini',
   openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-5-sonnet-20241022',
-  google: 'gemini-2.0-flash-exp',
+  anthropic: 'claude-3-5-sonnet-latest',
+  google: 'gemini-1.5-flash-latest',
 };
+
+// CT-01: Provider ↔ Model Prefix Validation Rules (single source of truth)
+// Purpose: Fast-fail invalid model/provider combos BEFORE wasting API bandwidth / retry attempts
+export function validateModelForProvider(provider: string, model: string): string | null {
+  const m = String(model || '').trim();
+  if (!m) return `Model ID cannot be empty (provider=${provider})`;
+  switch (provider) {
+    case 'openrouter':
+      if (!m.includes('/')) return `OpenRouter requires "provider/model" format (with slash prefix). Got: "${m}" — use e.g. "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet"`;
+      const [pre, post] = m.split('/');
+      if (!pre?.trim() || !post?.trim()) return `OpenRouter "provider/model" is malformed (empty side). Got: "${m}"`;
+      return null;
+    case 'openai':
+      if (m.includes('/')) return `OpenAI model must NOT contain "/" prefix (direct name only). Got: "${m}" — use e.g. "gpt-4o-mini" without provider prefix`;
+      return null;
+    case 'anthropic':
+      if (m.includes('/')) return `Anthropic model must NOT contain "/" prefix. Got: "${m}" — use e.g. "claude-3-5-sonnet-latest" without prefix`;
+      if (!m.startsWith('claude')) return `Anthropic model name should start with "claude-". Got: "${m}"`;
+      return null;
+    case 'google':
+      if (m.includes('/')) return `Google model must NOT contain "/" prefix. Got: "${m}" — use e.g. "gemini-1.5-flash-latest" without prefix`;
+      if (!m.startsWith('gemini')) return `Google model name should start with "gemini-". Got: "${m}"`;
+      if (m.endsWith('-exp') || m.includes(':free') || m.includes('-free-')) return `Google experimental / free-tier "${m}" is unstable (often removed / rate-throttled aggressively). Use stable "-latest" suffix instead e.g. gemini-1.5-flash-latest`;
+      return null;
+    case 'local':
+      return null;
+    default:
+      return `Unknown provider "${provider}" — cannot validate model ID`;
+  }
+}
 
 // Approximate pricing $ per 1M tokens (in/out). Subject to update when invoice received.
 export const PROVIDER_PRICING: Record<string, { in: number; out: number }> = {
@@ -63,6 +93,9 @@ export class LlmService {
     const provider = this.settings.llmProvider;
     const key = this.settings.llmApiKey;
     if (!key) throw new Error(`[LLM_${provider.toUpperCase()}_NO_KEY] No LLM API key stored for team.`);
+    // CT-01: Validate model/provider prefix BEFORE wasting API call — instant fail if malformed
+    const modelErr = validateModelForProvider(provider, opts.model);
+    if (modelErr) throw new Error(`[LLM_MODEL_VALIDATION_${provider.toUpperCase()}] ${modelErr}`);
 
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), opts.timeoutMs);
@@ -120,9 +153,12 @@ export class LlmService {
         const secs = Number(retryAfter) || 0;
         throw new Error(`[LLM_RATE_LIMIT_${provider.toUpperCase()}] HTTP 429${secs > 0 ? ` (Retry-After ${secs}s)` : ''} — slow down or upgrade rate limit tier.`);
       }
+      // CT-01: 400/404 = Invalid Model ID (NOT transient — retrying with same model will ALWAYS fail). Fast fail NO RETRY.
+      if (res.status === 400) throw new Error(`[LLM_MODEL_INVALID_${provider.toUpperCase()}] HTTP 400 — model "${opts.model}" invalid / bad request / malformed for provider ${provider}. Body snippet: ${text.slice(0, 200)}`);
+      if (res.status === 404) throw new Error(`[LLM_MODEL_NOT_FOUND_${provider.toUpperCase()}] HTTP 404 — model "${opts.model}" does NOT exist on ${provider} (removed, wrong prefix, or ID typo). Body snippet: ${text.slice(0, 200)}`);
       if (res.status >= 500) throw new Error(`[LLM_UPSTREAM_${provider.toUpperCase()}] HTTP ${res.status}: ${text.slice(0, 200)}`);
       let json: any;
-      try { json = JSON.parse(text); } catch { throw new Error(`[LLM_JSON_PARSE_${provider}] upstream body not JSON. Snippet: ${text.slice(0, 200)}`); }
+      try { json = JSON.parse(text); } catch { throw new Error(`[LLM_JSON_PARSE_${provider}] upstream body not JSON (HTTP ${res.status} 2xx but body invalid). Snippet: ${text.slice(0, 200)}`); }
 
       let content = '';
       let usage: LlmUsage = { input_tokens:0, output_tokens:0 };
@@ -181,8 +217,12 @@ export class LlmService {
         const isCredit = msg.startsWith('[LLM_CREDIT_EXHAUSTED_');
         const isRate = msg.startsWith('[LLM_RATE_LIMIT_');
         const isUpstream = msg.startsWith('[LLM_UPSTREAM_');
-        // CT-01: Hard fail types NO RETRY EVER (waste attempt slots)
-        if (isAuth || isCredit) break;
+        // CT-01: Hard fail types NO RETRY EVER (waste attempt slots — 100% deterministic failure with same input)
+        const isModelInvalid =
+          msg.startsWith('[LLM_MODEL_INVALID_') ||
+          msg.startsWith('[LLM_MODEL_NOT_FOUND_') ||
+          msg.startsWith('[LLM_MODEL_VALIDATION_');
+        if (isAuth || isCredit || isModelInvalid) break;
         if (attempt < MAX_ATTEMPTS) {
           const base = isRate ? (2000 * Math.pow(2, attempt + 1)) : (1000 * Math.pow(2, attempt));
           const backoff = jitter(base);

@@ -129,7 +129,7 @@ export const keywordsRouter = router({
           status: input.status as any,
           tier: clusterRow.type as any,
         });
-        const id = Number(inserted[0]?.insertId ?? inserted.insertId ?? (inserted as any)?.insertId);
+        const id = getInsertId(inserted);
         const [row] = await db.select().from(keywords).where(eq(keywords.id, id)).limit(1);
         return { ok: true, keyword: row, keywordId: id };
       } catch (e: any) {

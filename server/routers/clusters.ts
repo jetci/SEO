@@ -10,6 +10,7 @@ import { eq, and, inArray, asc, desc, count, sql } from 'drizzle-orm';
 import { CLUSTER_TYPES } from '../../db/schema.js';
 import type { ClusterType } from '../../shared/types.js';
 import { assertProjectAccess } from './_projectAccess.js';
+import { getInsertId } from '../_core/utils/insertId.js';
 
 const NAME_MAX = 255;
 const UNASSIGNED_CLUSTER_NAME = "📋 ยังไม่ได้จัดกลุ่ม (System)";
@@ -34,8 +35,7 @@ async function getOrCreateMarkerCluster(pid: number): Promise<number> {
     // enum type is "supporting" (preserves DB schema / migration-free upgrade). Any attempt
     // to edit its shape via user API is blocked at update/delete validators below.
     const ins: any = await db.insert(clusters).values({ projectId: n, name: UNASSIGNED_CLUSTER_NAME, type: 'supporting', parentId: null as any, createdAt: new Date() });
-    if (ins && typeof ins.insertId === 'number') return Number(ins.insertId);
-    if (Array.isArray(ins) && ins[0] && typeof ins[0]?.insertId === 'number') return Number(ins[0].insertId);
+    return getInsertId(ins);
   } catch (_dup) { /* race insert from parallel requests */ }
   [row] = await db.select().from(clusters).where(and(eq(clusters.projectId, n), eq(clusters.name, UNASSIGNED_CLUSTER_NAME))).limit(1);
   if (row) return Number(row.id);
@@ -156,7 +156,7 @@ export const clustersRouter = router({
           type: input.type as any,
           parentId: normParentId as any,
         });
-        const id = Number(inserted[0]?.insertId ?? inserted.insertId ?? (inserted as any)?.insertId);
+        const id = getInsertId(inserted);
         const row = await clusterOrNotFound(id);
         return { ok: true, cluster: row, clusterId: id };
       } catch (e: any) {

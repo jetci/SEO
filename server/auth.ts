@@ -10,36 +10,14 @@ import {
   type Context,
   touchSessionCookie,
 } from './_core/trpc.js';
-import { ENV, IS_DEV, IS_PROD, COOKIE_SAMESITE, COOKIE_SECURE } from './_core/env.js';
+import { ENV, IS_DEV, IS_PROD } from './_core/env.js';
 import { createSessionToken, verifySession, hashOpenIdToId } from './_core/sdk.js';
 import { users } from '../db/schema.js';
 import type { UserRole } from '../shared/types.js';
 import { db } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import * as jose from 'jose';
-
-// Consistent cookie domain: hostname from APP_URL; IP/localhost → undefined
-function sessionCookieDomain(): string | undefined {
-  try {
-    const u = new URL(ENV.APP_URL);
-    const host = u.hostname;
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host === 'localhost' || host === '127.0.0.1') return undefined;
-    return host.startsWith('www.') ? host.slice(4) : host;
-  } catch {
-    return undefined;
-  }
-}
-function sessionCookieOptions(expiresMs: number): Record<string, unknown> {
-  const domain = sessionCookieDomain();
-  return {
-    httpOnly: true,
-    sameSite: COOKIE_SAMESITE,
-    secure: COOKIE_SECURE,
-    maxAge: Math.floor(expiresMs / 1000),
-    path: '/',
-    ...(domain ? { domain } : {}),
-  };
-}
+import { buildCookieOptions } from './_core/utils/cookies.js';
 
 // ======================================================================
 // PART 1 · tRPC authRouter (3 procedures per SA §0.4a-4)
@@ -183,7 +161,7 @@ export const authRouter = router({
       }
 
       const expiresMs = ENV.SESSION_TTL_MS;
-      ctx.res.cookie(ENV.SESSION_COOKIE_NAME, token, sessionCookieOptions(expiresMs));
+      ctx.res.cookie(ENV.SESSION_COOKIE_NAME, token, buildCookieOptions(expiresMs));
 
       const outUser = dbUser ?? {
         id: hashOpenIdToId(input.openId),
@@ -347,7 +325,7 @@ authExpressRouter.get('/google/callback', async (req, res) => {
     }
 
     const expiresMs = ENV.SESSION_TTL_MS;
-    res.cookie(ENV.SESSION_COOKIE_NAME, sessionToken, sessionCookieOptions(expiresMs));
+    res.cookie(ENV.SESSION_COOKIE_NAME, sessionToken, buildCookieOptions(expiresMs));
 
     return res.redirect(ENV.APP_URL + '/');
   } catch (e: any) {

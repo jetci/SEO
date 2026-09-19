@@ -2,9 +2,10 @@
 // SA Mandate: context extracts session cookie → sdk.verifySession → attach user (or null)
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { Request, Response } from 'express';
-import { ENV, IS_DEV, IS_PROD, COOKIE_SAMESITE, COOKIE_SECURE } from './env.js';
+import { ENV, IS_DEV, IS_PROD } from './env.js';
 import { verifySession, createSessionToken, type SessionPayload } from './sdk.js';
 import type { User } from '../../db/schema.js';
+import { buildCookieOptions } from './utils/cookies.js';
 
 export type Context = {
   req: Request;
@@ -19,40 +20,14 @@ type CreateContextOpts = {
   res: Response;
 };
 
-/** Extract cookie domain (hostname) from ENV.APP_URL, or undefined if IP */
-function sessionCookieDomain(): string | undefined {
-  try {
-    const u = new URL(ENV.APP_URL);
-    const host = u.hostname;
-    // Skip domain= for IP addresses / localhost (cookies won't work with domain attribute)
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host === 'localhost' || host === '127.0.0.1') return undefined;
-    // Hostname: strip leading www for site-wide cookie (sub-domains share)
-    return host.startsWith('www.') ? host.slice(4) : host;
-  } catch {
-    return undefined;
-  }
-}
-
-// Helper: re-issue session cookie with sliding expiration.
-// Session is valid + we re-sign NEW JWT with NEW 24h exp each request →
-// cookie never expires as long as user is active (classic sliding session).
 export async function touchSessionCookie(res: Response, session: SessionPayload) {
   try {
     const freshToken = await createSessionToken(session.openId, { name: session.name });
     if (freshToken && freshToken.length >= 180 && freshToken.length <= 360) {
       const expiresMs = ENV.SESSION_TTL_MS;
-      const domain = sessionCookieDomain();
-      res.cookie(ENV.SESSION_COOKIE_NAME, freshToken, {
-        httpOnly: true,
-        sameSite: COOKIE_SAMESITE,
-        secure: COOKIE_SECURE,
-        maxAge: Math.floor(expiresMs / 1000),
-        path: '/',
-        ...(domain ? { domain } : {}),
-      });
+      res.cookie(ENV.SESSION_COOKIE_NAME, freshToken, buildCookieOptions(expiresMs));
     }
   } catch {
-    // Never block context on cookie renewal failure (best effort)
   }
 }
 
@@ -81,9 +56,18 @@ export async function createContext({ req, res }: CreateContextOpts): Promise<Co
 const t = initTRPC.context<Context>().create({
   isDev: IS_DEV,
   errorFormatter({ shape, error }) {
-    // Prod: hide internal stack traces
-    if (IS_PROD && error.code === 'INTERNAL_SERVER_ERROR') {
-      return { ...shape, message: 'Internal error' };
+    if (IS_PROD) {
+      const safeCodesGeneric: Array<string> = ['INTERNAL_SERVER_ERROR', 'TIMEOUT', 'CONFLICT', 'PRECONDITION_FAILED', 'PAYLOAD_TOO_LARGE', 'METHOD_NOT_SUPPORTED'];
+      if (safeCodesGeneric.includes(error.code)) {
+        return { ...shape, message: `${error.code}: Request failed.` };
+      }
+      return {
+        ...shape,
+        data: { code: shape.data?.code, httpStatus: shape.data?.httpStatus, path: undefined, stack: undefined },
+        message: /trace|teamId|team_id|permission|role|schema|DESCRIBE|ALTER|INSERT|UPDATE|DELETE|SELECT\b.*FROM|mariadb|mysql|sql|Error:|errno:|sqlState|code:\s*['"]?ER_/i.test(String(shape.message))
+          ? `${error.code}: Request failed.`
+          : shape.message,
+      };
     }
     return shape;
   },

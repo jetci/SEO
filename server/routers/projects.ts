@@ -12,6 +12,7 @@ import { KEYWORD_INTENTS } from '../../shared/types.js';
 import { assertTeamAccess, assertProjectAccess, userTeamIds } from './_projectAccess.js';
 import type { ProjectWithPermission } from '../../shared/types.js';
 import { LlmService } from '../services/llmClient.js';
+import { getInsertId } from '../_core/utils/insertId.js';
 
 const PROJECT_NAME_MIN = 1;
 const PROJECT_NAME_MAX = 255;
@@ -58,7 +59,7 @@ export const projectsRouter = router({
           description: input.description ?? null,
           isActive: 1,
         });
-        const projectId = Number(inserted[0]?.insertId ?? inserted.insertId ?? (inserted as any)?.insertId);
+        const projectId = getInsertId(inserted);
         const [row] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
         return { ok: true, project: row, projectId };
       } catch (e: any) {
