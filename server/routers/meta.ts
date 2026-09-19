@@ -7,6 +7,10 @@ import { protectedProcedure, TRPCError } from '../_core/middleware/rbac.js';
 import { db } from '../../db/index.js';
 import { categories } from '../../db/schema.js';
 import { eq, and, asc, sql } from 'drizzle-orm';
+import { IS_DEV, ENV } from '../_core/env.js';
+
+// WRITER-01: explicit opt-in mock guard. Default: NO mocks, always throw on DB fail.
+const MOCK_CATEGORIES_ALLOWED = IS_DEV && String((ENV as any).CATEGORIES_MOCK_ENABLE || process.env.CATEGORIES_MOCK_ENABLE || '0') === '1';
 
 export const metaRouter = router({
   categories: router({
@@ -33,9 +37,9 @@ export const metaRouter = router({
             .orderBy(asc(categories.sortOrder), asc(categories.name));
           return { ok: true, count: rows.length, categories: rows };
         } catch (e: any) {
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('[meta.categories.list] DB unavailable; fallback empty.', e?.message ?? String(e).slice(0, 80));
-            return { ok: true, count: 0, categories: [], mock: true };
+          if (MOCK_CATEGORIES_ALLOWED) {
+            console.warn('[meta.categories.list] DB unavailable; fallback empty (CATEGORIES_MOCK_ENABLE=1).', e?.message ?? String(e).slice(0, 80));
+            return { ok: true, count: 0, categories: [] };
           }
           throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: String(e?.message ?? e).slice(0, 200) });
         }

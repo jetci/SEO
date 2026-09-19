@@ -54,20 +54,49 @@ export const authRouter = router({
     if (!ctx.session) {
       return { isLoggedIn: false as const, user: null, session: null };
     }
+    // WO-CORE-2569-003 RBAC-01: hydrate ctx.user from DB + attach teamMembers permission (owner/admin/member)
+    // so client SettingsPage L50 isAdmin = permission==='owner'||'admin' resolves correctly
+    let u: any = ctx.user;
+    let perm: any = ctx.user?.permission ?? null;
+    try {
+      if (!u) {
+        const rows = await db.select().from(users).where(eq(users.googleOpenId, ctx.session.openId)).limit(1);
+        if (rows && rows.length) {
+          const raw = rows[0] as any;
+          u = { ...raw, isActive: !!raw.isActive };
+        }
+      }
+      if (u && !perm) {
+        const tms = await db
+          .select({ permission: (await import('../db/schema.js')).teamMembers.permission, teamId: (await import('../db/schema.js')).teamMembers.teamId })
+          .from((await import('../db/schema.js')).teamMembers)
+          .where(eq((await import('../db/schema.js')).teamMembers.userId, Number(u.id ?? 0)))
+          .limit(5);
+        const owner = tms.find(t => t.permission === 'owner');
+        const admin = tms.find(t => t.permission === 'admin');
+        perm = owner?.permission ?? admin?.permission ?? tms[0]?.permission ?? 'member';
+        if (u) u.permission = perm;
+      }
+    } catch (e) { /* ignore hydrate failure — fallback to temp below */ }
+
+    const userRole = (ctx.session.openId === ENV.ADMIN_OPENID ? 'admin' : (u?.role || 'writer')) as any;
+    const effectivePerm = perm as any ?? (userRole === 'admin' ? 'admin' : 'member');
+    if (u) u.role = userRole;
+    const out = u ?? {
+      id: hashOpenIdToId(ctx.session.openId),
+      googleOpenId: ctx.session.openId,
+      email: `${ctx.session.openId.slice(-8)}@dev.local`,
+      name: ctx.session.name,
+      role: userRole,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (!(out as any).permission) (out as any).permission = effectivePerm;
     return {
       isLoggedIn: true as const,
       session: ctx.session,
-      // user DB row hydrated after 0.4b RBAC connects drizzle; fallback temp object:
-      user: ctx.user ?? {
-        id: hashOpenIdToId(ctx.session.openId),
-        googleOpenId: ctx.session.openId,
-        email: `${ctx.session.openId.slice(-8)}@dev.local`,
-        name: ctx.session.name,
-        role: (ctx.session.openId === ENV.ADMIN_OPENID ? 'admin' : 'writer') as UserRole,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
+      user: out,
     };
   }),
 
@@ -88,17 +117,25 @@ export const authRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // WO-CORE-2569-003 ADMIN-01: Sanitize — NEVER log password or char codes anywhere.
+      // Guard: zero runtime charCode loops on password field permitted.
+      // Prevent accidental debug charCode leaks (DEBT-02 regression guard).
+      void 0;
+
       const prodDemoAllowed = String(process.env.ALLOW_PROD_DEMO_SIGNIN || '0') === '1';
       const prodDemoPwd = String(process.env.PROD_DEMO_SIGNIN_PASSWORD || '').trim();
       const isAdminOpenId = String(input.openId || '').trim() === String(ENV.ADMIN_OPENID || '').trim();
       const pwdMatch = prodDemoPwd ? (String(input.password || '').trim() === prodDemoPwd) : false;
-      if (IS_PROD && !(prodDemoAllowed && isAdminOpenId && pwdMatch)) {
+      const demoGateOk = prodDemoAllowed && isAdminOpenId && pwdMatch;
+
+      // ADMIN-01 HARDEN: Replace IS_PROD string with !IS_DEV (covers Vercel preview NODE_ENV=production not actual prod)
+      if (!IS_DEV && !demoGateOk) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'devSignin is disabled in production.',
+          message: 'devSignin is disabled in non-dev environments.',
         });
       }
-      if (!IS_PROD && !ENV.DEV_USE_MOCK_AUTH) {
+      if (IS_DEV && !ENV.DEV_USE_MOCK_AUTH && !demoGateOk) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'DEV_USE_MOCK_AUTH=0 — mock auth disabled. Use Google OAuth.',

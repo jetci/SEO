@@ -14,6 +14,7 @@ import { db } from '../../db/index.js';
 import { SerpService, type EnrichResult } from '../services/serpClient.js';
 import { LlmService } from '../services/llmClient.js';
 import * as crypto from 'node:crypto';
+import { IS_DEV } from '../_core/env.js';
 
 const INTENTS = [...KEYWORD_INTENTS];
 const KEYWORD_INTENT_ENUM = [...KEYWORD_INTENTS] as unknown as [string, ...string[]];
@@ -232,7 +233,7 @@ export const keywordsRouter = router({
               updated++;
             } else {
               skipped++;
-              if (process.env.NODE_ENV === 'development') console.warn('[importCsv] skip row:', msg.slice(0, 80));
+              if (IS_DEV) console.warn('[importCsv] skip row:', msg.slice(0, 80));
             }
           }
         }

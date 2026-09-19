@@ -149,7 +149,10 @@ export const adminRouter = router({
    * permission: admin ONLY
    */
   getSettingsMasked: adminProcedure.query(async ({ ctx }) => {
-    const teamId = Number((ctx as any)?.teamId ?? (ctx.user?.role === 'admin' ? 90001 : 0));
+    // WO-CORE-2569-003 RBAC-02: adminProcedure already enforced above;
+    // consistent fallback teamId resolver considers ctx.authMeta.role too (Phase 0 + Phase 1 coverage)
+    const isAdmin = (ctx.user?.role === 'admin') || ((ctx as any).authMeta?.role === 'admin');
+    const teamId = Number((ctx as any)?.teamId ?? (isAdmin ? 90001 : 0));
     const [llmProv, llmKey, serpProv, serpKey] = await Promise.all([
       settingsMaskedRow(teamId, 'llm_provider', 'LLM Provider', { isProvider: true }),
       settingsMaskedRow(teamId, 'llm_api_key', 'OpenRouter LLM API Key'),

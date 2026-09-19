@@ -3,7 +3,7 @@ import { ENV, IS_DEV } from '../env.js';
 import { publicProcedure, middleware, TRPCError } from '../trpc.js';
 import type { UserRole } from '../../../shared/types.js';
 import { db } from '../../../db/index.js';
-import { users } from '../../../db/schema.js';
+import { users, teamMembers } from '../../../db/schema.js';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -76,6 +76,8 @@ export const isAdmin = middleware(async ({ ctx, next }) => {
 // ── MIDDLEWARE 3: hydrateUser ────────────────────────────────────
 // Requires: isAuthenticated has run (ctx.session.openId exists)
 // Action: Query DB users table by googleOpenId → attach ctx.user
+// WO-CORE-2569-003 RBAC-01/RBAC-02 Enhancement: ALSO attach teamMembers permission (owner/admin/member)
+//    → ctx.user.permission = highest priority matching team perm → client SettingsPage isAdmin check works.
 // Guarantees: ctx.user is User object (from DB) OR null (if user row not yet created)
 export const hydrateUser = middleware(async ({ ctx, next }) => {
   const openId = ctx.session?.openId;
@@ -86,11 +88,25 @@ export const hydrateUser = middleware(async ({ ctx, next }) => {
     const rows = await db.select().from(users).where(eq(users.googleOpenId, openId)).limit(1);
     if (rows && rows.length > 0) {
       const u = rows[0] as any;
+      // WO-CORE-2569-003: Enrich permission from teamMembers
+      let permission: any = (u as any).permission ?? null;
+      if (!permission) {
+        try {
+          const tms = await db
+            .select({ permission: teamMembers.permission, teamId: teamMembers.teamId })
+            .from(teamMembers)
+            .where(eq(teamMembers.userId, Number(u.id ?? 0)))
+            .limit(5);
+          const owner = tms.find(t => (t.permission as any) === 'owner');
+          const admin = tms.find(t => (t.permission as any) === 'admin');
+          permission = owner?.permission ?? admin?.permission ?? tms[0]?.permission ?? null;
+        } catch (tmErr) { /* ignore teamMembers query failure */ }
+      }
       // Normalize isActive: DB tinyint(1) → boolean for ctx
       return next({
         ctx: {
           ...ctx,
-          user: { ...u, isActive: !!u.isActive } as any,
+          user: { ...u, isActive: !!u.isActive, ...(permission ? { permission } : {}) } as any,
         },
       });
     }
