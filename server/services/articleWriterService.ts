@@ -443,7 +443,7 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
           msg.startsWith('[LLM_MODEL_NOT_FOUND_') ||
           msg.startsWith('[LLM_MODEL_VALIDATION_');
         const isRate = msg.startsWith('[LLM_RATE_LIMIT_');
-        const isTimeout = /(timeout|TIMEOUT|AbortError|aborted|ETIMEDOUT|ECONNRESET|ECONNABORTED|hang up/i.test(msg);
+        const isTimeout = /(timeout|TIMEOUT|AbortError|aborted|ETIMEDOUT|ECONNRESET|ECONNABORTED|hang up)/i.test(msg);
 
         let reasonTh: string;
         let actionTh: string;
