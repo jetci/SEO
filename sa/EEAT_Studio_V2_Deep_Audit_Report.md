@@ -249,7 +249,7 @@
 
 ## API / tRPC
 
-### API-01 — client ใช้ httpLink (ไม่ batch) แต่คอมเมนต์อ้าง httpBatchLink
+### ✅ [CLOSED] API-01 — client ใช้ httpLink (ไม่ batch) แต่คอมเมนต์อ้าง httpBatchLink
 
 - **ความร้ายแรง:** 🟢 ต่ำ
 - **ปัญหาที่ตรวจพบ:**
@@ -269,7 +269,7 @@
   - แก้ต้นเหตุ: gate protected query รอ auth.me resolve (RequireAuth) แล้วถอด interceptor ซ้อน
 - **เอกสารจัดเก็บที่:** `client/src/trpc.ts + hooks/useAuth.ts`
 
-### API-03 — errorFormatter ซ่อน stack เฉพาะ INTERNAL_SERVER_ERROR — error อื่นยังเผยรายละเอียดภายใน
+### ✅ [CLOSED] API-03 — errorFormatter ซ่อน stack เฉพาะ INTERNAL_SERVER_ERROR — error อื่นยังเผยรายละเอียดภายใน
 
 - **ความร้ายแรง:** 🟢 ต่ำ
 - **ปัญหาที่ตรวจพบ:**
@@ -300,7 +300,7 @@
   - กรองเมนูตาม user.role/capability ซ่อนเมนู admin จาก writer
 - **เอกสารจัดเก็บที่:** `client/src/layouts/MainDashboardShell.tsx`
 
-### UX-03 — KeywordClusterPlanner 290KB / WritePage 177KB — ไฟล์เดียวยักษ์
+### ✅ [CLOSED] UX-03 — KeywordClusterPlanner 290KB / WritePage 177KB — ไฟล์เดียวยักษ์
 
 - **ความร้ายแรง:** 🟢 ต่ำ
 - **ปัญหาที่ตรวจพบ:**
@@ -332,7 +332,7 @@
   - ลบ AUTH_DEBUG_V16 ทั้งหมด หรือ gate ด้วย IS_DEV ห้าม log credential ทุกกรณี
 - **เอกสารจัดเก็บที่:** `server/auth.ts (AUTH_DEBUG_V16)`
 
-### DEBT-03 — โค้ด extractInsertId / sessionCookieDomain ซ้ำหลายไฟล์
+### ✅ [CLOSED] DEBT-03 — โค้ด extractInsertId / sessionCookieDomain ซ้ำหลายไฟล์
 
 - **ความร้ายแรง:** 🟢 ต่ำ
 - **ปัญหาที่ตรวจพบ:**
