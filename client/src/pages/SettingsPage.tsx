@@ -47,11 +47,7 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const now = new Date();
 
-  const isAdmin = user?.permission === "owner" || user?.permission === "admin";
-  const canSave = isAdmin;
-
   const settings = trpc.settings.get.useQuery(undefined, {
-    enabled: isAdmin,
     staleTime: 1000 * 60,
     onSuccess: (data) => {
       if (data?.settings) {
@@ -66,13 +62,32 @@ export default function SettingsPage() {
         }));
       }
     },
+    onError: (err: any) => {
+      // SET-07: Writer → FORBIDDEN on settings.get. Show friendly Thai message.
+      if (String(err?.message || '').includes('FORBIDDEN') || err?.data?.code === 'FORBIDDEN') {
+        toast.error('สิทธิ์ไม่เพียงพอ: บัญชีของคุณเป็น Role: Writer (Member) → ไม่อนุญาตให้อ่านหรือแก้ไขค่า Provider Settings ของทีม — ต้องมี Role: Admin หรือ Owner เท่านั้น');
+      }
+    }
   });
-  // SET-03 BUGFIX: use explicit teamId from settings.get return first (resolved correctly on server); fallback to user then 0
-  const defaultTeamId = Number(settings?.data?.teamId ?? (user as any)?.teamId ?? (user as any)?.defaultTeamId ?? 0);
+
+  // SET-02: Use TEAM-SPECIFIC permission flag from server (settings.data.canEditSettings)
+  // NOT global user.permission — prevents case: user is admin team A, member team B → Save button shown but FORBIDDEN on server.
+  const canEditSettings = !!settings?.data?.canEditSettings;
+  const canSave = canEditSettings;
+
+  // SET-03: teamId 0 GUARD. NEVER fall back to 0 silently. Block save + toast error before API call.
+  const rawTeamId = Number(settings?.data?.teamId ?? (user as any)?.teamId ?? (user as any)?.defaultTeamId ?? 0);
+  // Hooks called UNCONDITIONALLY (React hook rule compliance)
+  useEffect(() => {
+    if (!settings.isLoading && rawTeamId === 0) {
+      toast.error('ไม่สามารถระบุ Team ID ที่ใช้งานได้ (defaultTeamId=0) — กรุณา Login อีกครั้งเพื่อตั้งค่า Session ใหม่');
+    }
+  }, [settings.isLoading, rawTeamId]);
+  const defaultTeamId = rawTeamId > 0 ? rawTeamId : 0;
 
   const billing = trpc.settings.getBillingWindow.useQuery(
     { month: now.getMonth() + 1, year: now.getFullYear() },
-    { enabled: isAdmin, staleTime: 1000 * 60 * 5 }
+    { enabled: canEditSettings, staleTime: 1000 * 60 * 5 }
   );
 
   // PHASE 2K+ BUGFIX: saveMut/resetMut 5th safety net onError settings.save UNAUTHORIZED
@@ -271,7 +286,7 @@ export default function SettingsPage() {
       headerSubtitle="LLM / SERP Providers · ข้อมูลจะถูกเข้ารหัส AES-256-GCM ก่อนบันทึกในฐานข้อมูล (At-Rest Encryption)"
       headerActions={
         <>
-          {isAdmin && (
+          {canEditSettings && (
             <Badge
               variant="outline"
               className="!h-9 !px-3 !rounded-lg !text-[12px] !bg-emerald-50 !text-emerald-800 !border-emerald-200 inline-flex items-center gap-2"
@@ -285,7 +300,7 @@ export default function SettingsPage() {
         </>
       }
     >
-      {!isAdmin && (
+      {!canEditSettings && (
         <Card className="!rounded-2xl !border !border-dashed !border-rose-300 !bg-rose-50/40">
           <CardContent className="p-6 flex items-start gap-4">
             <div className="w-11 h-11 rounded-xl bg-white border border-rose-200 grid place-items-center text-rose-700 shrink-0">
@@ -301,7 +316,7 @@ export default function SettingsPage() {
         </Card>
       )}
 
-      {isAdmin && (
+      {canEditSettings && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <div className="lg:col-span-2 space-y-5">
             <Card className="!rounded-2xl !border-stone-200 !bg-white !shadow-sm">

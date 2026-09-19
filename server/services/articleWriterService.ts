@@ -434,8 +434,37 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
         sectionPlaceholderCount++;
         const keyPointsJoined = (s.key_points ?? []).filter(Boolean).map(String).join(' — ');
         const overviewSnippet = pkg.ai_overview?.slice(0, 1800) || '';
+        const msg = lastErr?.message || String(lastErr || 'UNKNOWN');
+
+        const isAuth = msg.startsWith('[LLM_AUTH_INVALID_');
+        const isCredit = msg.startsWith('[LLM_CREDIT_EXHAUSTED_');
+        const isModelInvalid =
+          msg.startsWith('[LLM_MODEL_INVALID_') ||
+          msg.startsWith('[LLM_MODEL_NOT_FOUND_') ||
+          msg.startsWith('[LLM_MODEL_VALIDATION_');
+        const isRate = msg.startsWith('[LLM_RATE_LIMIT_');
+
+        let reasonTh: string;
+        let actionTh: string;
+        if (isAuth) {
+          reasonTh = 'LLM Authentication Failed — API Key ไม่ถูกต้อง';
+          actionTh = 'ไปหน้า Settings → ตรวจสอบ LLM API Key ใหม่ แล้วค่อย Generate ใหม่ (ปัญหาถาวร จำกัดจำนวนครั้งไม่ได้ผล)';
+        } else if (isCredit) {
+          reasonTh = 'LLM Credit Exhausted — API เหลือ Balance ไม่เพียงพอ';
+          actionTh = 'เติม Credit ให้ LLM Provider หรือเปลี่ยน API Key ใหม่ (ปัญหาถาวร จำกัดจำนวนครั้งไม่ได้ผล)';
+        } else if (isModelInvalid) {
+          reasonTh = 'LLM Model ID Invalid — ชื่อโมเดลไม่มีอยู่หรือผิดรูปแบบ Provider';
+          actionTh = 'ไปหน้า Settings → เลือก Model จาก Dropdown แทนการพิมพ์เอง หรือตรวจสอบ Prefix ของ OpenRouter (ต้องมี provider/)';
+        } else if (isRate) {
+          reasonTh = 'LLM Rate Limit — โมเดลจำกัดจำนวนคำขอต่อนาที';
+          actionTh = 'รอประมาณ 30-60 วินาที แล้วกด Generate อีกครั้ง (ปัญหาชั่วคราว Retry ได้)';
+        } else {
+          reasonTh = 'LLM transient error / Network timeout';
+          actionTh = 'ลองกด Generate ใหม่ในอีกไม่กี่วินาที หากซ้ำหลายครั้ง ให้ตรวจสอบ Internet หรือเปลี่ยน Model';
+        }
+
         const placeholders: string[] = [];
-        placeholders.push(`> **[AUTO PLACEHOLDER — LLM transient limit hit 5/5 attempts]** หัวข้อ: **${s.heading_text}** — โปรดแก้ไขด้วยมือ หรือกด Generate อีกครั้งหลังจากไม่กี่วินาที\n`);
+        placeholders.push(`> **[AUTO PLACEHOLDER — MAX ATTEMPTS EXHAUSTED (${MAX_ATTEMPTS}/${MAX_ATTEMPTS})]** สาเหตุ: ${reasonTh} | หัวข้อ: **${s.heading_text}** | แก้ไข: ${actionTh}\n`);
         if (overviewSnippet?.length > 120) {
           placeholders.push(`✦ ข้อมูลพื้นฐานจากการวิจัย ✦\n${overviewSnippet}\n\nข้อมูลดังกล่าวสะท้อนประเด็นสำคัญที่ผู้ใช้จริงมองหาเมื่อค้นหาเกี่ยวกับ **${pkg.keyword_text}** ทำให้สามารถอ้างอิงจุดเน้นหลักในการเขียนบทความส่วนนี้ได้ทันที\n`);
         }
@@ -444,8 +473,7 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
         }
         placeholders.push(`✦ คำแนะนำเชิงปฏิบัติ ✦\nเมื่อเขียนส่วนนี้ เน้นคำตอบที่ตรงประเด็น ใช้ภาษาที่สนทนาเป็นธรรมชาติ แยกย่อหน้าสั้นๆ ประมาณ 3-6 ประโยค ตามด้วยข้อคิดสรุปที่ผู้อ่านสามารถนำไปใช้ได้ทันที\n`);
         body = placeholders.join('\n\n');
-        const msg = lastErr?.message || String(lastErr || 'UNKNOWN');
-        console.warn(`[articleWriterService:writeDraft:${pkg.keyword_text?.slice(0,60)}] Section LLM ${MAX_ATTEMPTS} exhausted → FALLBACK PLACEHOLDER generated heading="${s.heading_text?.slice(0,100)}" H${s.heading_level} (placeholderChars=${body.trim().length} ≥ required=${MIN_BODY_CHARS}). Last raw LLM: ${msg.slice(0,200)}`);
+        console.warn(`[articleWriterService:writeDraft:${pkg.keyword_text?.slice(0,60)}] Section LLM ${MAX_ATTEMPTS} exhausted → FALLBACK PLACEHOLDER generated heading="${s.heading_text?.slice(0,100)}" H${s.heading_level} reason="${isAuth?'AUTH':isCredit?'CREDIT':isModelInvalid?'MODEL':isRate?'RATE':'TRANSIENT'}" (placeholderChars=${body.trim().length} ≥ required=${MIN_BODY_CHARS}). Last raw LLM: ${msg.slice(0,200)}`);
       }
 
       const wcBody = wordCount(body);
@@ -466,7 +494,7 @@ A3-LAYMAN-TERMS-CONVERSION: STATISTICAL JARGON MUST BE CONVERTED TO SIMPLE THAI 
     // Step 5: Compute totals; if words short <1500, pad intro to reach target
     let introPad = '';
     if (bodyWordTotal < 1500 && (pkg.ai_overview?.length ?? 0) > 100) {
-      introPad = `\n\n### ข้อมูลเชิงลึกเสริมจาก SERP\n\n${pkg.ai_overview}\n\nข้อมูลด้านบนนี้เป็นการสังเคราะห์จากผลการค้นหาจากผู้ใช้จริง ซึ่งสะท้อนความต้องการของกลุ่มเป้าหมายที่มองหาเนื้อหาเกี่ยวกับ **${pkg.keyword_text}** โดยตรง ทำให้บทความนี้ครอบคลุมทุกประเด็นสำคัญที่ผู้อ่านสนใจ\n`;
+      introPad = `\n\n✦ ข้อมูลเชิงลึกเสริมจาก SERP ✦\n\n${pkg.ai_overview}\n\nข้อมูลด้านบนนี้เป็นการสังเคราะห์จากผลการค้นหาจากผู้ใช้จริง ซึ่งสะท้อนความต้องการของกลุ่มเป้าหมายที่มองหาเนื้อหาเกี่ยวกับ **${pkg.keyword_text}** โดยตรง ทำให้บทความนี้ครอบคลุมทุกประเด็นสำคัญที่ผู้อ่านสนใจ\n`;
       bodyWordTotal += wordCount(introPad);
     }
     if (introPad && sections.length > 0) sections[0].body_markdown = sections[0].body_markdown + introPad;

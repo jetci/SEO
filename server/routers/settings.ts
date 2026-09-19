@@ -10,6 +10,7 @@ import { db } from '../../db/index.js';
 import { eq, and, inArray } from 'drizzle-orm';
 import { settings as settingsTable, users, teamMembers, researchAudit } from '../../db/schema.js';
 import { userTeamIds, assertTeamAccess } from './_projectAccess.js';
+import { maskKey } from '../_core/utils/maskKey.js';
 
 export const LLM_PROVIDERS = ['openrouter','openai','anthropic','google'] as const;
 export const SERP_PROVIDERS_SETTINGS = ['dataforseo','serper'] as const;
@@ -65,12 +66,6 @@ export function safeDecrypt(encrypted: string | null | undefined): { ok: true; v
   }
 }
 
-function maskKey(k: string): string {
-  if (!k) return '';
-  if (k.length <= 8) return k.slice(0, 2) + '****';
-  return k.slice(0, 4) + '****' + k.slice(-4);
-}
-
 function newTraceId(): string {
   return crypto.randomUUID();
 }
@@ -93,11 +88,13 @@ export async function resolveTeamIdForSettings(ctx: any): Promise<number> {
   return Number((ownerAdmin ?? rows[0]).teamId);
 }
 
-const BILLING_KEY = 'billing_limit_usd' as const;
+// SET-09: constant name SETTINGS_EXTRA_KEY for clarity (LEGACY DB keyName preserved billing_limit_usd for 0-ALTER SCHEMA COMPLIANCE — stores JSON: {c:country, l:lang, bl:billingLimit})
+const SETTINGS_EXTRA_KEY = 'billing_limit_usd' as const;
+// DB Key Constant Note: DO NOT change the string value above — MariaDB settings table column keyName enum expects this legacy name per SET-04-05-06-08 0-ALTER RULE.
 type ExtraMeta = { c?: string; l?: string; bl?: number | null };
 
 function readExtra(map: Map<string, string>): { countryCode: string; langCode: string; billingLimitUsd: number | null } {
-  const raw = map.get(BILLING_KEY);
+  const raw = map.get(SETTINGS_EXTRA_KEY);
   const fallback = { countryCode: 'TH', langCode: 'th', billingLimitUsd: null as number | null };
   if (!raw) return fallback;
   const s = safeDecrypt(raw);
@@ -287,7 +284,10 @@ export const settingsRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
     try {
       const teamId = await resolveTeamIdForSettings(ctx);
-      await assertTeamAccess(ctx, teamId, { minRole: 'member' }, TRPCError);
+      // SET-07 (MEDIUM): minRole: member → admin — blocks Role: Writer (Member) from reading team Provider keys entirely
+      // SET-02 (HIGH): destructure permission from THIS team assert (team-specific) — NOT global user.permission field
+      const { permission: teamPermission } = await assertTeamAccess(ctx, teamId, { minRole: 'admin' }, TRPCError);
+      const canEditSettings = teamPermission === 'owner' || teamPermission === 'admin';
       const map = await loadSettingsForTeam(teamId);
       const dec = (k: string) => map.has(k) ? safeDecrypt(map.get(k)!).val : '';
       const extra = readExtra(map);
@@ -300,6 +300,9 @@ export const settingsRouter = router({
       return {
         ok: true,
         teamId,
+        // SET-02 (HIGH): FE uses EXACTLY this server-derived canEditSettings flag
+        // — NO MORE FE-side global isAdmin = (user.permission === 'owner'|'admin') mismatch bug
+        canEditSettings,
         settings: {
           llmProvider,
           llmApiKeyMasked: maskKey(llmKey),
@@ -314,6 +317,8 @@ export const settingsRouter = router({
         },
       };
     } catch (e: any) {
+      // Forward FORBIDDEN from assertTeamAccess to FE — Writer hitting this triggers the Thai toast on SettingsPage.tsx onError handler
+      if (e instanceof TRPCError && (e.code === 'FORBIDDEN' || e.code === 'UNAUTHORIZED')) throw e;
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `Failed to get settings: ${String(e?.message ?? e).slice(0, 150)}` });
     }
   }),
@@ -386,7 +391,7 @@ export const settingsRouter = router({
           const encSerp = encryptValue(input.serpApiKey.trim());
           await upsertSetting(teamId, 'serp_api_key', encSerp);
         }
-        await upsertSetting(teamId, BILLING_KEY, encExtra);
+        await upsertSetting(teamId, SETTINGS_EXTRA_KEY, encExtra);
 
         // Roundtrip verify NEW llm only if upserted
         if (useNewLlmKey) {

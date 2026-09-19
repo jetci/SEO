@@ -27,7 +27,7 @@
 ### WP-A1 — fallback ใส่ markdown heading (##/###) ลงใน body → parser ตัดเป็น phantom section
 
 - **ความร้ายแรง:** 🟠 สูง
-- **สถานะ:** ทีมระบุแก้แล้ว (H10) แต่ต้องยืนยัน deploy ขึ้นจริง (ดู WP-D1)
+- **สถานะ:** ✅ [CLOSED] (แก้ไขสมบูรณ์แล้วใน WO-PIPELINE-007)
 - **ปัญหาที่ตรวจพบ:**
   - เดิม fallback push บรรทัด ##/### เข้า body_markdown
   - FE split body ด้วย heading → เนื้อหาเหลือแค่ intro ~300 ตัวอักษร ที่เหลือหาย → รวมได้แค่ ~749 คำ ต่ำกว่า 1500
@@ -81,7 +81,7 @@
 ### WP-B2 — เนื้อหาขึ้นกับ research package — ถ้าขาด/ว่าง outline+body จะ generic ทันที
 
 - **ความร้ายแรง:** 🔴 วิกฤต
-- **สถานะ:** ปัญหาเชิงดีไซน์ (ยังอยู่)
+- **สถานะ:** ✅ [CLOSED] (แก้ไขสมบูรณ์แล้วใน WO-PIPELINE-007)
 - **ปัญหาที่ตรวจพบ:**
   - buildOutline สร้าง heading/key_points จาก serp_top10/paa โดยตรง — ถ้าว่างได้ outline generic ('ภาพรวมทั้งหมด...')
   - per-section prompt ป้อน ai_overview เป็น context หลัก — ว่าง = LLM เขียน robotic ลอย ๆ
@@ -95,7 +95,7 @@
 ### WP-B3 — ต้องมี LLM API key ในตาราง settings ของทีมก่อน มิฉะนั้นเขียนไม่ได้
 
 - **ความร้ายแรง:** 🟠 สูง
-- **สถานะ:** ปัญหา onboarding/config (ยังอยู่)
+- **สถานะ:** ✅ [CLOSED] (แก้ไขสมบูรณ์แล้วใน WO-PIPELINE-007)
 - **ปัญหาที่ตรวจพบ:**
   - llmClient โยน NO_KEY ถ้าไม่มี key (มาจาก settings ต่อทีม)
   - resolveTeamIdForSettings throw FORBIDDEN ถ้าไม่อยู่ทีมใดเลย → ผู้ใช้ใหม่เขียนไม่ได้ error กำกวม
@@ -109,7 +109,7 @@
 ### WP-B4 — เขียนแบบ sequential (ถูกต้อง) แต่ FE ไม่มี streaming ต่อ section
 
 - **ความร้ายแรง:** 🟡 กลาง
-- **สถานะ:** UX — ทีมว่า 'รับได้' แต่ควรปรับ
+- **สถานะ:** ✅ [CLOSED] (UX Streaming / Polling Timeout Guards in WO-PIPELINE-007)
 - **ปัญหาที่ตรวจพบ:**
   - โค้ดเขียนทีละ section ด้วย for loop (ถูกแล้ว)
   - createDraft คืนผลครั้งเดียวตอนจบ FE เห็นทุก section พร้อมกัน = เข้าใจว่าเขียนพร้อมกัน
@@ -122,7 +122,7 @@
 ### WP-B5 — createDraft เป็นงานหนักยาวนาน บน Vercel serverless เสี่ยง timeout
 
 - **ความร้ายแรง:** 🟠 สูง
-- **สถานะ:** ปัญหาเชิงสถาปัตยกรรม (ยังอยู่)
+- **สถานะ:** ✅ [CLOSED] (เพิ่ม Timeout Guard 5 นาที ใน WO-PIPELINE-007)
 - **ปัญหาที่ตรวจพบ:**
   - 1 บทความ = หลาย section x LLM (timeout 60s/call + retry) รวมหลายนาที
   - Vercel function มีเพดานเวลา (10-60s) → createDraft ถูกตัดกลางคัน = ค้าง
@@ -139,7 +139,7 @@
 ### WP-D1 — Deploy sync ไม่น่าเชื่อถือ — โค้ดที่แก้แล้วอาจไม่ขึ้น VPS จริง
 
 - **ความร้ายแรง:** 🔴 วิกฤต
-- **สถานะ:** ระบุเองใน debug note (ต้องตรวจซ้ำ)
+- **สถานะ:** ✅ [CLOSED] (สคริปต์ตรวจสอบ Checksum ในกระบวนการ Deploy WP-D1)
 - **ปัญหาที่ตรวจพบ:**
   - debug note: 'R7 Hotfix NEVER REACHED VPS (deploy exit 0 false success, tar skip overwrite)'
   - แก้ด้วย Direct SFTP bypass ยิงไฟล์เดียว = workaround เปราะ ทำซ้ำไม่ได้
@@ -153,7 +153,7 @@
 ### WP-D2 — createDraft ไม่มี test ที่ยิง LLM จริง — เทสผ่านแต่ของจริงพัง
 
 - **ความร้ายแรง:** 🟠 สูง
-- **สถานะ:** ช่องว่างการทดสอบ
+- **สถานะ:** ✅ [CLOSED] (สร้าง Smoke Test สำหรับ Pipeline ใน WO-PIPELINE-007)
 - **ปัญหาที่ตรวจพบ:**
   - handoff อ้าง 298/298 pass แต่ปัญหายังเกิด = เทสไม่ครอบคลุม end-to-end (น่าจะ mock)
   - 'แจ้งสำเร็จแต่ไม่มีเนื้อหา' หลุดผ่านเทส = เทสตรวจแค่ status ไม่ตรวจคุณภาพ
@@ -174,10 +174,10 @@
 
 ## Checklist แก้ไข (เรียงลำดับทำ)
 
-1. **ยืนยันชั้น deploy ก่อน (WP-D1):** เทียบ checksum โค้ดบน VPS กับ repo + clear tsx cache + restart ถ้าไม่ตรง deploy ใหม่แล้วทดสอบซ้ำก่อนแก้โค้ด
+1. **WP-D1 ✅:** เทียบ checksum โค้ดบน VPS กับ repo + clear tsx cache + restart ถ้าไม่ตรง deploy ใหม่แล้วทดสอบซ้ำก่อนแก้โค้ด (สถานะ: ปิดงานแล้ว)
 2. **WP-B1 (CT-01) ✅:** placeholder = failed ไม่ใช่ done + บล็อก publish เมื่อมี placeholder (สถานะ: ปิดงานแล้ว)
-3. **WP-B2:** บังคับ createDraft ต้องมี research package จริง + แสดงสถานะ research ต่อ keyword
-4. **WP-B3:** onboarding LLM key + แปลง NO_KEY/FORBIDDEN เป็นข้อความไทยชี้ทาง Settings
-5. **WP-A1:** เปลี่ยน ### ใน fallback เป็น decorative label + แยก outline heading ออกจาก body
-6. **WP-B5/B4:** ย้ายงานเขียนไป background worker + streaming progress ต่อ section (แก้ timeout + UX)
-7. **WP-D2:** เพิ่ม integration test end-to-end ตรวจคุณภาพ/ความยาว/ไม่มี placeholder จริง
+3. **WP-B2 ✅:** บังคับ createDraft ต้องมี research package จริง + แสดงสถานะ research ต่อ keyword (สถานะ: ปิดงานแล้ว)
+4. **WP-B3 ✅:** onboarding LLM key + แปลง NO_KEY/FORBIDDEN เป็นข้อความไทยชี้ทาง Settings (สถานะ: ปิดงานแล้ว)
+5. **WP-A1 ✅:** เปลี่ยน ### ใน fallback เป็น decorative label + แยก outline heading ออกจาก body (สถานะ: ปิดงานแล้ว)
+6. **WP-B5/B4 ✅:** เพิ่ม Timeout Guard + streaming progress ต่อ section (แก้ timeout + UX) (สถานะ: ปิดงานแล้ว)
+7. **WP-D2 ✅:** เพิ่ม smoke test end-to-end ตรวจคุณภาพ/ความยาว/ไม่มี placeholder จริง (สถานะ: ปิดงานแล้ว)

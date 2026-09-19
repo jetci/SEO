@@ -208,6 +208,15 @@ export const writeRouter = router({
 
       // ── SANITIZE SELECTED MODEL (Cross-Provider ID prefix guard — same logic as generateOutline)
       const teamSettingsCreate = await resolveTeamSettings(ctx);
+
+      // WP-B3 (HIGH): PRE-FLIGHT LLM API KEY PRESENT CHECK — Thai clear error BEFORE spending 30-120s on outline + write only to fail mid-request with generic "no key" error
+      if (!teamSettingsCreate.llmApiKey || !String(teamSettingsCreate.llmApiKey).trim()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `[traceId=${traceId}][LLM_API_KEY_REQUIRED_WRITE] ยังไม่ได้บันทึก LLM API Key — ระบบจึงสร้างบทความไม่ได้ กรุณาไปที่ "ตั้งค่าระบบ" > Providers > ใส่ LLM API Key อย่างน้อยครั้งแรก แล้วค่อยกดสร้างใหม่ (ตัวอย่าง: OpenRouter / OpenAI / Anthropic / Google Gemini Key)`,
+        });
+      }
+
       const runtimeProviderCreate = String(teamSettingsCreate.llmProvider || 'openrouter').toLowerCase();
       function sanitizeModelIdCreate(selected: string | undefined, provider: string): string {
         const raw = String(selected || '').trim();
@@ -398,21 +407,37 @@ export const writeRouter = router({
         if (!hasOverview) missing.push('AI Overview Summary (ai_overview < 80 chars)');
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: `ยังไม่มีข้อมูล Research สำหรับคีย์เวิร์ดนี้ (ขาด: ${missing.join(' + ')}) — กรุณาไปรัน "วิจัยคีย์เวิร์ด / Research" ให้สำเร็จก่อนเริ่มเขียนบทความ. หากคุณเพิ่งรัน Research เมื่อสักครู่ โปรดรอประมาณ 10 วินาที แล้วลองกดอีกครั้ง`,
+          message: `[traceId=${traceId}] ยังไม่มีข้อมูล Research สำหรับคีย์เวิร์ดนี้ (ขาด: ${missing.join(' + ')}) — กรุณาไปรัน "วิจัยคีย์เวิร์ด / Research" ให้สำเร็จก่อนเริ่มเขียนบทความ. หากคุณเพิ่งรัน Research เมื่อสักครู่ โปรดรอประมาณ 10 วินาที แล้วลองกดอีกครั้ง`,
         });
       }
 
       // Write workflow step 5: mark running
       const start = Date.now();
 
-      // Generate draft using service (INJECT 3 NEW CONTEXTS: tier hierarchy + step2 outline + density targets + TARGET WORD COUNT)
+      // WP-B5 (HIGH): TIMEOUT GUARD — createDraft uses VPS but browser/Nginx may kill >5min. Promise.race returns whichever first.
+      const WRITE_MAX_MS = 5 * 60 * 1000; // 5 minutes absolute upper bound for VPS (avoids 60s Vercel-style silent truncate)
+      const writeTimeoutPromise = new Promise<never>((_, reject) => {
+        const t = setTimeout(() => {
+          clearTimeout(t);
+          reject(new Error(`[WRITE_TIMEOUT_EXCEEDED] traceId=${traceId} — กระบวนการสร้างบทความใช้เวลาเกิน ${Math.round(WRITE_MAX_MS / 1000)} วินาที. สาเหตุที่เป็นไปได้: LLM Provider ตอบช้า / Outline มี section มากเกินไป / Network VPS ↔ Provider. วิธีแก้: ลองกด Generate ใหม่อีกครั้ง หรือลดจำนวน Sections ใน Outline`));
+        }, WRITE_MAX_MS);
+      });
+
       let out;
       try {
-        out = await ArticleWriterService.writeDraft(ctx, pkgLite, clusterTopic, ymyl, Number(kw.projectId), threeTierCtx, outlineOverride, densityTargets, finalModelCreate, writerWordTarget);
+        console.log(`[write.createDraft:trace=${traceId}] START writeDraft kw="${kw.keywordText.slice(0, 60)}" model=${finalModelCreate.slice(0, 32)} sections=${(outlineOverride as any)?.sections?.length ?? input.outlineSections?.length ?? 'AUTO'} targetWords=${writerWordTarget}`);
+        out = await Promise.race([
+          ArticleWriterService.writeDraft(ctx, pkgLite, clusterTopic, ymyl, Number(kw.projectId), threeTierCtx, outlineOverride, densityTargets, finalModelCreate, writerWordTarget),
+          writeTimeoutPromise,
+        ]);
       } catch (e: any) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message || 'Failed to generate draft content.' });
+        const rawMsg = String(e?.message ?? e ?? 'Failed to generate draft content.');
+        const finalMsg = rawMsg.includes('traceId=') ? rawMsg : `[traceId=${traceId}] ${rawMsg}`;
+        console.error(`[write.createDraft:trace=${traceId}] writeDraft FAILED after ${Date.now() - start}ms: ${rawMsg.slice(0, 220)}`);
+        throw new TRPCError({ code: 'BAD_REQUEST', message: finalMsg });
       }
       const durationMs = Date.now() - start;
+      console.log(`[write.createDraft:trace=${traceId}] COMPLETE writeDraft duration=${durationMs}ms words=${out.word_count_total} eeat=${out.eeat_score_est} placeholders=${(out as any).placeholder_section_count ?? 0}`);
 
       // Insert articles row + write_articles workflow row, upsert duplicate keyword
       let articleId: number;
@@ -440,7 +465,7 @@ export const writeRouter = router({
           if (sel) articleId = sel.id;
         }
       }
-      if (!articleId) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to persist articles row (no insertId returned).' });
+      if (!articleId) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `[traceId=${traceId}] Failed to persist articles row (no insertId returned).` });
 
       // Update keyword written status
       await db.update(keywordsTable).set({ status: 'written' }).where(eq(keywordsTable.id, kw.id));
@@ -452,7 +477,7 @@ export const writeRouter = router({
       const resolvedStepStatus = ((out as any).step_status_override || 'done') as 'done' | 'pending' | 'running' | 'fail';
       const placeholderCount = Number((out as any).placeholder_section_count || 0);
       const hasPlaceholder = !!(out as any).has_placeholder;
-      const errorMsgForDb = hasPlaceholder ? `WARN: ${placeholderCount} section(s) = AUTO PLACEHOLDER (LLM 5/5 exhausted). User MUST edit manually before publish.` : null;
+      const errorMsgForDb = hasPlaceholder ? `WARN: ${placeholderCount} section(s) = AUTO PLACEHOLDER (LLM 5/5 exhausted). traceId=${traceId} — User MUST edit manually before publish.` : null;
       try {
         await db.insert(writeArticles).values({
           articleId,
@@ -476,7 +501,7 @@ export const writeRouter = router({
           },
         });
       } catch (e: any) {
-        console.warn('[write.createDraft] write_articles upsert fail:', String(e?.message ?? e).slice(0, 220));
+        console.warn(`[write.createDraft:trace=${traceId}] write_articles upsert fail:`, String(e?.message ?? e).slice(0, 220));
       }
 
       return {

@@ -70,6 +70,13 @@ try {
 const st = fs.statSync(OUT);
 console.log(`\n✅ TARBALL READY → ${OUT} (${(st.size/1024).toFixed(1)} KB)`);
 
+// WP-D1 (CRITICAL): Compute sha256 checksum for deploy sync verification (prevents corrupt upload / partial transfer)
+import { createHash } from 'node:crypto';
+const sha256Local = createHash('sha256').update(fs.readFileSync(OUT)).digest('hex').toLowerCase();
+const SHA_OUT = path.join(OUT_DIR, 'project.tar.gz.sha256');
+fs.writeFileSync(SHA_OUT, sha256Local + '\n');
+console.log(`🧮 SHA256 CHECKSUM → ${SHA_OUT}\n   ${sha256Local}`);
+
 // Double-verify: does the fresh tarball contain critical files?
 const ver = String(execSync(`tar -tzf "${OUT.replace(/\\/g,'/')}"`));
 const hasApp = /server\/app\.ts/.test(ver);

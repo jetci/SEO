@@ -4,6 +4,7 @@
 import SSHClient from "ssh2-promise";
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const CFG = {
   host: "35.231.230.218",
@@ -230,7 +231,29 @@ async function main() {
 
   LOG("SFTP", `Upload tgz (${fs.statSync(LOCAL_TGZ).size} bytes) → /tmp/project_deploy_v2.tar.gz`);
   const sftp = ssh.sftp();
-  await sftp.fastPut(LOCAL_TGZ, "/tmp/project_deploy_v2.tar.gz", { concurrency: 8 });
+  const localSha = createHash('sha256').update(fs.readFileSync(LOCAL_TGZ)).digest('hex').toLowerCase();
+  LOG("CHECKSUM", `LOCAL sha256 = ${localSha}`);
+  let attempts = 0;
+  let uploadOk = false;
+  while (attempts < 2 && !uploadOk) {
+    attempts++;
+    if (attempts > 1) LOG("SFTP", `Retry upload attempt ${attempts}/2 (checksum mismatch)...`);
+    await sftp.fastPut(LOCAL_TGZ, "/tmp/project_deploy_v2.tar.gz", { concurrency: 8 });
+    const remoteRaw = String(await ssh.exec("sha256sum /tmp/project_deploy_v2.tar.gz | awk '{print $1}'").catch(() => ""));
+    const remoteSha = remoteRaw.trim().toLowerCase();
+    LOG("CHECKSUM", `REMOTE sha256 (attempt ${attempts}) = ${remoteSha || "(empty)"}`);
+    uploadOk = (remoteSha === localSha);
+    if (!uploadOk && attempts < 2) {
+      LOG("CHECKSUM", "MISMATCH → retrying upload once");
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  if (!uploadOk) {
+    LOG("CHECKSUM", "FATAL MISMATCH after 2 attempts. ABORTING deploy BEFORE running remote script (WP-D1 guard prevents partial/corrupt code on VPS)");
+    await ssh.close();
+    process.exit(66);
+  }
+  LOG("CHECKSUM", "MATCH → upload verified complete & byte-identical. Proceeding safely.");
   LOG("SFTP", "Upload OK, write remote script");
   await sftp.writeFile("/tmp/eeat_v2_deploy.sh", REMOTE_SH, { mode: 0o755 });
   LOG("SFTP", "Script ready");
