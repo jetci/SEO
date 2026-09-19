@@ -136,7 +136,7 @@ async function loadSettingsForTeam(teamId: number) {
   }
   if (badKeys.length) {
     for (const k of badKeys) map.delete(k);
-    try { await db.delete(settingsTable).where(and(eq(settingsTable.teamId, teamId), inArray(settingsTable.keyName, badKeys as any))); } catch {}
+    console.warn('[SETTINGS][BAD-DECRYPT] teamId=%s keys=%O SESSION_SECRET changed or corrupt data — DB rows kept for overwrite on next save (SET-05)', teamId, badKeys);
   }
 
   // Seed ENV defaults for missing settings on first call
@@ -308,8 +308,9 @@ export const settingsRouter = router({
           serpApiKeyMasked: maskKey(serpKey),
           hasSerpApiKey: !!serpKey,
           hasBothKeys: !!llmKey && !!serpKey,
-          countryCode,
-          langCode,
+          countryCode: extra.countryCode,
+          langCode: extra.langCode,
+          billingLimitUsd: extra.billingLimitUsd,
         },
       };
     } catch (e: any) {
@@ -327,6 +328,7 @@ export const settingsRouter = router({
       validatePing: z.boolean().default(true),
       countryCode: z.string().length(2, 'countryCode ต้อง 2 อักษร เช่น TH/US').default('TH'),
       langCode: z.string().min(2, 'langCode min 2 อักษร').max(10, 'langCode max 10 อักษร').default('th'),
+      billingLimitUsd: z.coerce.number().positive().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const traceId = newTraceId();
@@ -367,7 +369,7 @@ export const settingsRouter = router({
         const encProv = encryptValue(input.llmProvider);
         const encSerpProv = encryptValue(input.serpProvider);
         const extraPrev = readExtra(existing);
-        const encExtra = encryptValue(encodeExtra(input.countryCode, input.langCode, extraPrev.billingLimitUsd));
+        const encExtra = encryptValue(encodeExtra(input.countryCode, input.langCode, input.billingLimitUsd ?? extraPrev.billingLimitUsd));
 
         await upsertSetting(teamId, 'llm_provider', encProv);
         // Only upsert NEW llm if provided (otherwise preserve existing — B1 fix)
@@ -406,6 +408,7 @@ export const settingsRouter = router({
             hasSerpApiKey: useNewSerpKey || hasExistingSerp,
             countryCode: input.countryCode,
             langCode: input.langCode,
+            billingLimitUsd: (typeof input.billingLimitUsd === 'number' || input.billingLimitUsd === null) ? input.billingLimitUsd : extraPrev.billingLimitUsd,
           },
           encryptedWith: 'AES-256-GCM',
           keysUpdated: {
@@ -426,8 +429,8 @@ export const settingsRouter = router({
       if (!teamId) teamId = await resolveTeamIdForSettings(ctx);
       await assertTeamAccess(ctx, teamId, { minRole: 'admin' }, TRPCError);
       const deletes = (input.keyType === 'llm'
-        ? ['llm_provider', 'llm_api_key']
-        : ['serp_provider', 'serp_api_key']) as Array<'llm_provider'|'llm_api_key'|'serp_provider'|'serp_api_key'|'billing_limit_usd'>;
+        ? ['llm_api_key']
+        : ['serp_api_key']) as Array<'llm_api_key'|'serp_api_key'|'billing_limit_usd'>;
       await db.delete(settingsTable).where(and(eq(settingsTable.teamId, teamId), inArray(settingsTable.keyName, deletes)));
       return { ok: true, deleted: deletes, teamId };
     }),

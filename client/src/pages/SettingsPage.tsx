@@ -55,12 +55,14 @@ export default function SettingsPage() {
     staleTime: 1000 * 60,
     onSuccess: (data) => {
       if (data?.settings) {
+        const s = data.settings as any;
         setForm(f => ({
           ...f,
-          llmProvider: (data.settings.llmProvider as any) || f.llmProvider,
-          serpProvider: (data.settings.serpProvider as any) || f.serpProvider,
-          countryCode: (data.settings as any).countryCode || f.countryCode,
-          langCode: (data.settings as any).langCode || f.langCode,
+          llmProvider: s.llmProvider || f.llmProvider,
+          serpProvider: s.serpProvider || f.serpProvider,
+          countryCode: s.countryCode || f.countryCode,
+          langCode: s.langCode || f.langCode,
+          billingLimitUsd: (typeof s.billingLimitUsd === 'number' && Number.isFinite(s.billingLimitUsd)) ? s.billingLimitUsd : "",
         }));
       }
     },
@@ -117,6 +119,7 @@ export default function SettingsPage() {
     countryCode: "TH",
     langCode: "th",
     validatePing: true,
+    billingLimitUsd: "" as number | "",
   });
 
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
@@ -135,6 +138,7 @@ export default function SettingsPage() {
       serpProvider: s.serpProvider || f.serpProvider,
       countryCode: s.countryCode || f.countryCode,
       langCode: s.langCode || f.langCode,
+      billingLimitUsd: (typeof s.billingLimitUsd === 'number' && Number.isFinite(s.billingLimitUsd)) ? s.billingLimitUsd : "",
     }));
     setEditingLlmKey(false);
     setEditingSerpKey(false);
@@ -204,6 +208,7 @@ export default function SettingsPage() {
         countryCode: form.countryCode,
         langCode: form.langCode,
         validatePing: !!form.validatePing,
+        billingLimitUsd: (typeof form.billingLimitUsd === 'number' || (typeof form.billingLimitUsd === 'string' && form.billingLimitUsd.trim().length)) ? Number(form.billingLimitUsd) || null : null,
       };
       if (defaultTeamId && defaultTeamId > 0) payload.teamId = defaultTeamId;
       const res = await saveMut.mutateAsync(payload);
@@ -215,6 +220,7 @@ export default function SettingsPage() {
         if (up.serpApiKey) parts.push("🗝️ อัปเดต SERP Key ใหม่"); else parts.push("🔒 SERP Key ใช้ต้นฉบับ");
         parts.push(`🌎 Default Country: ${keys.countryCode || form.countryCode}`);
         parts.push(`🔤 Default Language: ${keys.langCode || form.langCode}`);
+        if (keys.billingLimitUsd) parts.push(`💰 Billing Limit: $${Number(keys.billingLimitUsd).toFixed(2)}`); else if (keys.billingLimitUsd === null) parts.push(`💰 Billing Limit: ไม่จำกัด`);
         toast.success("บันทึกการตั้งค่าเรียบร้อย", {
           description: parts.join(" · "),
           duration: 3800,
