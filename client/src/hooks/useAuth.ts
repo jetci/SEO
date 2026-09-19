@@ -90,6 +90,11 @@ export type CurrentUser = {
   avatarUrl?: string | null;
 };
 
+export function isUserAdminOrOwner(u: CurrentUser | null | undefined): boolean {
+  if (!u) return false;
+  return u.role === 'admin' || u.permission === 'owner' || u.permission === 'admin';
+}
+
 export function useAuth() {
   const me = trpc.auth.me.useQuery(undefined, {
     retry: (_f: number, err: any) => err?.data?.code !== 'UNAUTHORIZED' && err?.data?.code !== 'FORBIDDEN',
@@ -159,7 +164,7 @@ export function useAuth() {
   }, [devSignin, me]);
 
   const loginWithMock = useCallback(async (picked: any) => {
-    const isAdmin = picked?.role === 'admin' || String(picked?.email ?? '').includes('intelman') || String(picked?.email ?? '').toLowerCase() === 'demo@eeat-pro.local' || String(picked?.name ?? '').toLowerCase().includes('admin');
+    const isAdmin = picked?.role === 'admin';
     const pwd = String(picked?.password || '').trim();
     const input: any = isAdmin
       ? {

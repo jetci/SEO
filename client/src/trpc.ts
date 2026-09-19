@@ -7,13 +7,6 @@ import type { AppRouter } from '../../server/index';
 export const API_BASE_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3002';
 
 // ======================================================================
-// PHASE 2J BUGFIX: GLOBAL 401 UNAUTHORIZED INTERCEPTOR FOR ALL PROCEDURES!
-// Root cause: settings.save / write.saveDraft / research.enrichSerp etc.
-// could fail UNAUTHORIZED when session cookie expired. BEFORE: only auth.me
-// error invalidated cache + redirected. AFTER: ANY procedure 401/403 triggers
-// markAuthLoggedOut via globalThis bridge (imported from useAuth.ts at runtime).
-// ======================================================================
-// ======================================================================
 // PHASE 2K+ BUGFIX #1: tRPC LAYER NEVER CALLS markAuthLoggedOut (window redirect)!
 // Root cause: On page REFRESH, parallel protected queries (projects.list/categories.list/settings.*)
 // fire BEFORE auth.me query resolves → they hit protectedProcedure ctx.session=null during brief
@@ -21,10 +14,13 @@ export const API_BASE_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://lo
 // markAuthLoggedOut HARD redirect to /login FALSE POSITIVE before auth.me could return true!
 // NEW behavior (SAFE pattern): tRPC layer 401/FORBIDDEN → ONLY __markAuthCacheInvalid
 // (clears client cache, NO redirect). Redirect decision deferred EXCLUSIVELY to useAuth
-// auth.me query effect (L121-128 useAuth.ts): ONLY fires if auth.me ITSELF returns explicit
+// auth.me query effect: ONLY fires if auth.me ITSELF returns explicit
 // UNAUTHORIZED/FORBIDDEN CODE = confirmed server says session actually dead. Real dead =
 // auth.me query returns error code → redirect. Valid session = auth.me succeeds BEFORE
 // any race 401 can falsely logout user.
+// Intercepted at 2 levels ONLY (kept minimal post-2K):
+//   (a) httpLink fetch wrapper resp.status === 401/403
+//   (b) QueryClient.defaultOptions queries + mutations onError
 // ======================================================================
 function globalOnAny401OrForbidden(errCode: string, errMessage: string = "") {
   try {
@@ -46,15 +42,7 @@ export const trpc = createTRPCReact<AppRouter>({
         await opts.originalFn();
         await opts.queryClient.invalidateQueries();
       },
-      // NOTE: tRPC v10 type UseMutationOverride has no onError.
-      // Global 401/FORBIDDEN interception handled at 4 levels below:
-      //  (a) httpBatchLink fetch wrapper resp.status === 401/403
-      //  (b) QueryClient.defaultOptions.mutations.onError
-      //  (c) QueryClient.defaultOptions.queries.onError
-      //  (d) Each page saveMut/resetMut inline useMutation({ onError })
-      //  (e) useAuth auth.me useEffect explicit error code
     },
-    // Same rationale: useQuery override has no onError in tRPC v10 type sig
   },
 });
 
@@ -88,10 +76,6 @@ export function createAppQueryClient(): QueryClient {
       queries: {
         staleTime: 1000 * 15,
         refetchOnWindowFocus: false,
-        // ======================================================================
-        // PHASE 2J: Global Query onError - catch UNAUTHORIZED at QueryClient level too
-        // (3rd safety net in addition to httpBatchLink + useQuery override)
-        // ======================================================================
         onError: (err: any) => {
           const code = String(err?.data?.code ?? err?.code ?? "");
           if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
@@ -106,14 +90,6 @@ export function createAppQueryClient(): QueryClient {
       },
       mutations: {
         retry: false,
-        // ======================================================================
-        // PHASE 2J: Global Mutation onError - settings.save 401 caught HERE!
-        // 4th safety net total = globalOnAny401OrForbidden called from 4 levels:
-        //   1. fetch HTTP level 401/403 (httpBatchLink wrapper)
-        //   2. useMutation override (trpc createTRPCReact)
-        //   3. useQuery override (trpc createTRPCReact)
-        //   4. QueryClient default options (global) ← THIS ONE
-        // ======================================================================
         onError: (err: any) => {
           const code = String(err?.data?.code ?? err?.code ?? "");
           if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {

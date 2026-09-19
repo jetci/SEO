@@ -1,5 +1,6 @@
 // EEAT Studio V2 · Drizzle ORM Schema — SINGLE SOURCE OF TRUTH
-// 8 Tables ONLY — matches SQL db/migrations/0001_init_8_tables.sql EXACTLY
+// 14 Tables (Phase2D complete) — matches SQL db/migrations chain:
+//   0001_init_8_tables.sql → 0002_phase2_research.sql → 0003_phase2d_write.sql → 0004_phase3_brand_voice.sql
 // DO NOT ADD extra columns or tables here (SA §4 Mandate LINE-BY-LINE).
 // Type = mysql/bigint unsigned for PKs.
 // ⚠️ REVISED 2026-09-08: Sync to fixed SQL (non-compliance FIX-1)
@@ -10,6 +11,7 @@
 //   · clusters: TOTAL REWRITE (name, type enum pillar/cluster/supporting, parentId self-ref) SA L62-L63
 //   · keywords: +status enum(pending/written) ADDED SA L66
 //   · articles: keywordId → NULLABLE SA L68! status=draft/published (2 values ONLY SA L68), removed workflowStatus/clusterId/wordCount/outlineJson/publishedAt
+//   · write_articles, research_audit, settings (Phase2D), brand_voice_rows (Phase3): added in later migration phases (total 14 tables)
 import {
   bigint, int, tinyint, varchar, text, mysqlEnum,
   datetime, uniqueIndex, index, primaryKey, decimal,

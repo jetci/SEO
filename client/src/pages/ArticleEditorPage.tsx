@@ -8,7 +8,7 @@ import { ArrowLeft, Save, Upload, Eye, AlertTriangle, Award, Hash, BookCheck, Ca
 import { trpc } from "@/trpc";
 import { Link, useRoute, useLocation } from "wouter";
 import { toast } from "sonner";
-import useAuth from "@/hooks/useAuth";
+import useAuth, { isUserAdminOrOwner } from "@/hooks/useAuth";
 
 function renderMarkdownSafe(md: string): string {
   // 1) Escape HTML first
@@ -54,7 +54,7 @@ export default function ArticleEditorPage() {
   const draftId = Number(params?.id ?? 0);
   const [, setLocation] = useLocation();
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.permission === "owner" || user?.permission === "admin";
+  const isAdmin = isUserAdminOrOwner(user);
   const q = trpc.write.getDraft.useQuery({ draftId }, { enabled: !!draftId, staleTime: 1000 * 30, refetchOnWindowFocus: false });
   const [title, setTitle] = useState("");
   const [mt, setMt] = useState("");
@@ -190,6 +190,8 @@ export default function ArticleEditorPage() {
 
   const stat = q.data?.draft?.status as 'draft'|'published'|undefined;
   const wf = q.data?.workflow;
+  const isStepFail = String(wf?.step_status || '') === 'fail';
+  const publishDisabled = !isAdmin || wordCount<1500 || publishMut.isPending || (stat !== 'published' && isStepFail);
 
   return (
     <MainDashboardShell
@@ -211,9 +213,10 @@ export default function ArticleEditorPage() {
             {saveMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
           </Button>
           {stat !== 'published' ? (
-            <Button size="sm" className="!h-9 !rounded-lg !bg-emerald-700 hover:!bg-emerald-800" onClick={e=>doPublish(e, false)} disabled={!isAdmin || wordCount<1500 || publishMut.isPending}>
+            <Button size="sm" className="!h-9 !rounded-lg !bg-emerald-700 hover:!bg-emerald-800" onClick={e=>doPublish(e, false)} disabled={publishDisabled} title={isStepFail ? '⚠️ บทความยังมี Placeholder section ต้องเขียนทับเองก่อนตีพิมพ์' : undefined}>
               <Upload className="size-4 mr-2" />ตีพิมพ์ step 10
               {wordCount<1500 && <span className="ml-1 text-[10px] opacity-80">(need ≥1500)</span>}
+              {isStepFail && <span className="ml-1 text-[10px] opacity-80 text-amber-200">⚠️ Placeholder</span>}
             </Button>
           ) : (
             <Button size="sm" variant="outline" className="!h-9 !rounded-lg" onClick={e=>doPublish(e,true)} disabled={!isAdmin}>

@@ -6,3 +6,7 @@ build
 .next
 .DS_Store
 .trae
+*.log
+deploy_tmp/
+db/debug_*.ts
+.vercel/

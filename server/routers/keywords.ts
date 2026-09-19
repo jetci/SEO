@@ -15,23 +15,11 @@ import { SerpService, type EnrichResult } from '../services/serpClient.js';
 import { LlmService } from '../services/llmClient.js';
 import * as crypto from 'node:crypto';
 import { IS_DEV } from '../_core/env.js';
+import { getInsertId } from '../_core/utils/insertId.js';
 
 const INTENTS = [...KEYWORD_INTENTS];
 const KEYWORD_INTENT_ENUM = [...KEYWORD_INTENTS] as unknown as [string, ...string[]];
 const CLUSTER_TYPE_ENUM = [...CLUSTER_TYPES] as unknown as [string, ...string[]];
-
-function extractInsertId(res: any): number {
-  if (Array.isArray(res)) {
-    if (res.length > 0 && typeof res[0]?.insertId === 'number') return Number(res[0].insertId);
-    if (typeof (res as any).insertId === 'number') return Number((res as any).insertId);
-    const first = (res as any)[0];
-    if (first && (Array.isArray(first) || typeof first === 'object')) {
-      if (typeof first.insertId === 'number') return Number(first.insertId);
-      if (typeof first[0]?.insertId === 'number') return Number(first[0].insertId);
-    }
-  } else if (res && typeof res.insertId === 'number') return Number(res.insertId);
-  return 0;
-}
 
 const KW_MAX = 255;
 const UNASSIGNED_CLUSTER_NAME = "ยังไม่ได้จัดกลุ่ม (System)";
@@ -215,8 +203,8 @@ export const keywordsRouter = router({
               ...(typeof r.difficulty === 'number' ? { difficulty: r.difficulty } : {}),
             };
             const res: any = await db.insert(keywords).values(values);
-            const newId = extractInsertId(res);
-            if (newId > 0) insertedKeywordIds.push(newId);
+            const newId = getInsertId(res);
+            insertedKeywordIds.push(newId);
             inserted++;
             void res;
           } catch (e: any) {
@@ -876,8 +864,8 @@ export const keywordsRouter = router({
               categoryId: categoryId as any,
               keywordSource: source,
             } as any);
-            const newId = extractInsertId(res);
-            if (newId && Number(newId) > 0) {
+            const newId = getInsertId(res);
+            if (Number(newId) > 0) {
               newlyInsertedKwCount++;
               assignedCount++;
               inputKwsLower.set(lower, { id: newId, keywordText: t, tier, intentSuggestion: finalIntent, clusterId, __assigned: true });
@@ -940,7 +928,7 @@ export const keywordsRouter = router({
             return existing.id;
           }
           const res = await db.insert(clusters).values({ projectId: input.projectId, name: trimmed, type: type as any, parentId: (parentId ?? null) as any });
-          const id = extractInsertId(res);
+          const id = getInsertId(res);
           insertedNameToId.set(trimmed, id);
           return id;
         };

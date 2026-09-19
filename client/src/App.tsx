@@ -4,6 +4,7 @@ import { Route, Switch, Redirect } from "wouter";
 import { lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import RequireAuth from "@/components/guards/RequireAuth";
 
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const Login = lazy(() => import("@/pages/Login"));
@@ -34,25 +35,18 @@ export default function App() {
           <Suspense fallback={LoadingFallback}>
             <Switch>
               <Route path="/login"><Login /></Route>
-              <Route path="/"><DashboardOverviewPage /></Route>
-              <Route path="/dashboard"><DashboardOverviewPage /></Route>
-              <Route path="/projects"><ProjectsPage /></Route>
-              <Route path="/research"><KeywordResearchPage /></Route>
-              <Route path="/kcp"><KeywordClusterPlanner /></Route>
-              <Route path="/write"><WritePage /></Route>
-              <Route path="/members">
-                <Redirect to="/" replace={true} />
-              </Route>
-              <Route path="/teams">
-                <Redirect to="/" replace={true} />
-              </Route>
-              <Route path="/audit"><AdminAuditPage /></Route>
-              <Route path="/settings">
-                <SettingsPage />
-              </Route>
-              <Route path="/articles"><ArticlesPage /></Route>
-              <Route path="/articles/:id/edit"><ArticleEditorPage /></Route>
-              <Route path="/projects/:id/articles"><ArticlesPage /></Route>
+              <Route path="/"><RequireAuth><DashboardOverviewPage /></RequireAuth></Route>
+              <Route path="/dashboard"><RequireAuth><DashboardOverviewPage /></RequireAuth></Route>
+              <Route path="/projects"><RequireAuth><ProjectsPage /></RequireAuth></Route>
+              <Route path="/research"><RequireAuth><KeywordResearchPage /></RequireAuth></Route>
+              <Route path="/kcp"><RequireAuth><KeywordClusterPlanner /></RequireAuth></Route>
+              <Route path="/write"><RequireAuth><WritePage /></RequireAuth></Route>
+              {/* TODO PHASE4: Team/Members Management UI routes, removed empty Redirects no UI available yet */}
+              <Route path="/audit"><RequireAuth requiredRole="admin"><AdminAuditPage /></RequireAuth></Route>
+              <Route path="/settings"><RequireAuth><SettingsPage /></RequireAuth></Route>
+              <Route path="/articles"><RequireAuth><ArticlesPage /></RequireAuth></Route>
+              <Route path="/articles/:id/edit"><RequireAuth><ArticleEditorPage /></RequireAuth></Route>
+              <Route path="/projects/:id/articles"><RequireAuth><ArticlesPage /></RequireAuth></Route>
               <Route><NotFound /></Route>
             </Switch>
           </Suspense>

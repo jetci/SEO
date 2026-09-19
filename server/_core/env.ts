@@ -28,6 +28,9 @@ const EnvSchema = z.object({
 
   // Session
   SESSION_SECRET: z.string().min(32),
+  // AES-256-GCM encryption key for settings (API keys etc).
+  // Backward compat: unset = fall back to SESSION_SECRET value (existing installs).
+  ENCRYPTION_KEY: z.string().min(32).optional(),
   SESSION_COOKIE_NAME: z.string().default('eeat_studio_v2_session'),
   SESSION_TTL_MS: z.coerce.number().default(86400000),
   ONE_YEAR_MS: z.coerce.number().default(365 * 24 * 3600 * 1000),
@@ -53,6 +56,9 @@ const EnvSchema = z.object({
   SERP_API_KEY: z.string().optional(),
   DEFAULT_COUNTRY_CODE: z.string().length(2).default('th'),
   DEFAULT_LANG_CODE: z.string().length(2).default('th'),
+
+  DEFAULT_ADMIN_TEAM_ID: z.coerce.number().positive().default(90001),
+  CRON_SECRET: z.string().nullable().optional().default(''),
 });
 
 // SAFE FAIL-FAST local dev, graceful degrade Vercel (so /api/health can report errors without cold-start crash)
@@ -62,6 +68,7 @@ let envData: z.infer<typeof EnvSchema>;
 
 if (parsed.success) {
   envData = parsed.data;
+  if (!envData.ENCRYPTION_KEY) envData.ENCRYPTION_KEY = envData.SESSION_SECRET;
 } else {
   const flat = parsed.error.flatten();
   for (const [k, msgs] of Object.entries(flat.fieldErrors)) {
@@ -84,6 +91,7 @@ if (parsed.success) {
     DB_HOST: '127.0.0.1', DB_PORT: 3306, DB_USER: 'eeat', DB_PASSWORD: '', DB_NAME: 'eeat_studio_v2',
     DB_SSL: VERCEL_DEPLOYED, DATABASE_URL: process.env.DATABASE_URL || '',
     SESSION_SECRET: (process.env.SESSION_SECRET as string) || 'FALLBACK_UNSAFE_SESSION_SECRET_VERCEL_SET_ENV_VAR_32CHAR_MIN',
+    ENCRYPTION_KEY: (process.env.ENCRYPTION_KEY as string) || (process.env.SESSION_SECRET as string) || 'FALLBACK_UNSAFE_SESSION_SECRET_VERCEL_SET_ENV_VAR_32CHAR_MIN',
     SESSION_COOKIE_NAME: 'eeat_studio_v2_session',
     SESSION_TTL_MS: 86400000, ONE_YEAR_MS: 365 * 24 * 3600 * 1000, SESSION_SAMESITE: VERCEL_DEPLOYED ? 'none' : 'lax',
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '__FILL_IN__.apps.googleusercontent.com',
@@ -96,6 +104,8 @@ if (parsed.success) {
     SERP_API_KEY: process.env.SERP_API_KEY || '',
     DEFAULT_COUNTRY_CODE: process.env.DEFAULT_COUNTRY_CODE || 'th',
     DEFAULT_LANG_CODE: process.env.DEFAULT_LANG_CODE || 'th',
+    DEFAULT_ADMIN_TEAM_ID: Number(process.env.DEFAULT_ADMIN_TEAM_ID || 90001),
+    CRON_SECRET: process.env.CRON_SECRET || '',
   } as z.infer<typeof EnvSchema>;
 }
 

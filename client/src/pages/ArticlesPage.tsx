@@ -8,7 +8,7 @@ import { trpc } from "@/trpc";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import useAuth from "@/hooks/useAuth";
+import useAuth, { isUserAdminOrOwner } from "@/hooks/useAuth";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -28,7 +28,7 @@ export default function ArticlesPage() {
   const list = trpc.projects.list.useQuery();
   const projects = Array.isArray(list.data) ? (list.data as any[]) : [];
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.permission === "owner" || user?.permission === "admin";
+  const isAdmin = isUserAdminOrOwner(user);
   const [projectId, setProjectId] = useState<number | "all">("all");
   const [fQuery, setFQuery] = useState("");
   const [fStatus, setFStatus] = useState<"" | "draft" | "published">("");
@@ -468,7 +468,7 @@ function rowsToTable(rows: any[], ctx: { isAdmin: boolean; onToggle:(row:any,e:a
               <Pencil className="size-3 inline ml-1 text-stone-300 group-hover:text-amber-600 opacity-0 group-hover:opacity-100 transition" />
             </button>
           </td>
-          <td className="py-3 px-3">{r.status === 'published' ? <Badge className="!bg-emerald-100 !text-emerald-800 !border !border-emerald-200">ตีพิมพ์</Badge> : <Badge className="!bg-amber-100 !text-amber-800 !border !border-amber-200">ร่าง</Badge>}</td>
+          <td className="py-3 px-3 flex items-center gap-2 flex-wrap">{r.status === 'published' ? <Badge className="!bg-emerald-100 !text-emerald-800 !border !border-emerald-200">ตีพิมพ์</Badge> : (<><Badge className="!bg-amber-100 !text-amber-800 !border !border-amber-200">ร่าง</Badge>{String(r.stepStatus || '') === 'fail' && <Badge className="!bg-rose-100 !text-rose-700 !border !border-rose-200" title={String(r.errorMsg || '')}>⚠️ มี Placeholder ห้าม Publish</Badge>}</>)}</td>
           <td className="py-3 px-3 text-right text-stone-700 tabular-nums">{Number(r.wordCount||0).toLocaleString()}</td>
           <td className="py-3 px-3 text-center">{eeatBadge(r.eeatScore)}</td>
           <td className="py-3 px-3 text-right tabular-nums text-stone-700">{Number(r.citationsCount||0)}</td>
@@ -482,9 +482,11 @@ function rowsToTable(rows: any[], ctx: { isAdmin: boolean; onToggle:(row:any,e:a
                 size="sm"
                 variant={r.status === 'published' ? 'outline' : 'default'}
                 className={'!h-8 !px-3 !rounded-lg text-[12px] ' + (r.status !== 'published' ? '!bg-emerald-700 hover:!bg-emerald-800' : '')}
-                onClick={(e)=>ctx.onToggle(r, e)} disabled={!ctx.isAdmin || !!ctx.publishLoading} title={ctx.isAdmin ? (r.status === 'published' ? 'ยกเลิกตีพิมพ์' : 'ตีพิมพ์ step 10') : 'เฉพาะ Admin / Owner เท่านั้น'}
+                onClick={(e)=>ctx.onToggle(r, e)}
+                disabled={!ctx.isAdmin || !!ctx.publishLoading || (r.status !== 'published' && String(r.stepStatus || '') === 'fail')}
+                title={ctx.isAdmin ? (r.status === 'published' ? 'ยกเลิกตีพิมพ์' : (String(r.stepStatus || '') === 'fail' ? '⚠️ มี Placeholder ต้องเขียนทับเองก่อนตีพิมพ์' : 'ตีพิมพ์ step 10')) : 'เฉพาะ Admin / Owner เท่านั้น'}
               >
-                {r.status === 'published' ? 'ย้อนกลับร่าง' : 'ตีพิมพ์'}
+                {r.status === 'published' ? 'ย้อนกลับร่าง' : (String(r.stepStatus || '') === 'fail' ? '⚠️ Placeholder' : 'ตีพิมพ์')}
               </Button>
               <Button variant="ghost" size="sm" className="!h-8 !px-2 !rounded-lg text-rose-600 hover:!bg-rose-50" onClick={()=>ctx.onDelete(r)} title="ลบบทความถาวร" disabled={!!ctx.deleteLoading}><Trash2 className="size-4" /></Button>
             </div>

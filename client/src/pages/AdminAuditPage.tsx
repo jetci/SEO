@@ -5,8 +5,10 @@ import { Separator } from "@/components/ui/separator";
 import { BarChart3, Users, FolderKanban, FileText, Award, Download, AlertTriangle, DollarSign, Eye, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/trpc";
+import useAuth from "@/hooks/useAuth";
+import { Redirect } from "wouter";
 
 // =============================================================================
 // AdminAuditPage.tsx — PHASE 3 Admin Audit (WIRED backend adminRouter procedures)
@@ -15,7 +17,27 @@ import { trpc } from "@/trpc";
 // =============================================================================
 
 export default function AdminAuditPage() {
+  const { loading, isLoggedIn, user } = useAuth();
   const [csvLoading, setCsvLoading] = useState(false);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#fbf8f4]">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full border-4 border-amber-600/30 border-t-amber-600 animate-spin mx-auto mb-5" />
+          <p className="text-stone-600 text-[14px]">กำลังโหลด EEAT Studio...</p>
+        </div>
+      </div>
+    );
+  }
+  if (!isLoggedIn) return <Redirect to="/login" replace={true} />;
+  const isAllowed = user?.role === 'admin' || user?.permission === 'owner';
+  useEffect(() => {
+    if (!loading && isLoggedIn && !isAllowed) {
+      window.location.href = '/';
+    }
+  }, [loading, isLoggedIn, isAllowed]);
+  if (!isAllowed) return <Redirect to="/" replace={true} />;
 
   const overview = trpc.admin.getOverview.useQuery(undefined, { staleTime: 1000 * 60 });
   const projects = trpc.admin.getProjectsEEAT.useQuery(undefined, { staleTime: 1000 * 60 });

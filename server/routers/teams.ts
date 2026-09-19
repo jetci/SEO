@@ -9,6 +9,7 @@ import { teams, teamMembers, users } from '../../db/schema.js';
 import { eq, and, inArray } from 'drizzle-orm';
 import { TEAM_PERMS } from '../../db/schema.js';
 import type { TeamPermission } from '../../shared/types.js';
+import { getInsertId } from '../_core/utils/insertId.js';
 
 export const teamsRouter = router({
   /**
@@ -45,7 +46,7 @@ export const teamsRouter = router({
           description: input.description ?? null,
           isActive: 1,
         });
-        const teamId: number = Number(inserted[0]?.insertId ?? inserted.insertId ?? (inserted as any)?.insertId ?? Date.now());
+        const teamId: number = getInsertId(inserted);
 
         // Add creator as owner member
         await db.insert(teamMembers).values({
@@ -164,7 +165,7 @@ export const teamsRouter = router({
           userId: targetId,
           permission: input.permission as TeamPermission,
         });
-        return { ok: true, added: true, teamMemberId: Number(inserted[0]?.insertId ?? inserted.insertId ?? (inserted as any)?.insertId ?? Date.now()) };
+        return { ok: true, added: true, teamMemberId: getInsertId(inserted) };
       } catch (e: any) {
         if (IS_DEV && e?.code !== 'FORBIDDEN' && e?.code !== 'NOT_FOUND') {
           console.warn('[teams.addMember] DB skipped, mock success:', e?.message ?? String(e).slice(0, 100));

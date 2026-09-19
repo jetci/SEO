@@ -14,19 +14,7 @@ import { resolveTeamIdForSettings, resolveTeamSettings } from './settings.js';
 import { PROVIDER_DEFAULT_MODELS } from '../services/llmClient.js';
 import * as crypto from 'node:crypto';
 import { Document, Packer, Paragraph, HeadingLevel, TextRun } from 'docx';
-
-function extractInsertId(res: any): number {
-  if (Array.isArray(res)) {
-    if (res.length > 0 && typeof res[0]?.insertId === 'number') return Number(res[0].insertId);
-    if (typeof (res as any).insertId === 'number') return Number((res as any).insertId);
-    const first = (res as any)[0];
-    if (first && typeof first === 'object') {
-      if (typeof (first as any).insertId === 'number') return Number((first as any).insertId);
-      if (Array.isArray(first) && typeof first[0]?.insertId === 'number') return Number(first[0].insertId);
-    }
-  } else if (res && typeof (res as any).insertId === 'number') return Number((res as any).insertId);
-  return 0;
-}
+import { getInsertId } from '../_core/utils/insertId.js';
 
 function serverParseInlineRuns(line: string, extraOpts?: { italics?: boolean }): TextRun[] {
   const runs: TextRun[] = [];
@@ -442,7 +430,11 @@ export const writeRouter = router({
           title: d.title, metaTitle: d.meta_title, metaDescription: d.meta_description,
           content: out.markdown_content, status: 'draft',
         });
-        articleId = extractInsertId(ins);
+        try {
+          articleId = getInsertId(ins);
+        } catch (_errId) {
+          articleId = 0;
+        }
         if (!articleId) {
           const [sel] = await db.select({ id: articles.id }).from(articles).where(and(eq(articles.projectId, Number(kw.projectId)), eq(articles.keywordId, kw.id))).limit(1);
           if (sel) articleId = sel.id;
@@ -640,6 +632,20 @@ export const writeRouter = router({
       if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: `Draft ${input.draftId} not found.` });
       if (!row.projectId) throw new TRPCError({ code: 'BAD_REQUEST', message: '[NO_PROJECT_ID] article row orphan.' });
       await assertProjectAccess(ctx, Number(row.projectId), { minRole: 'admin' }, TRPCError);
+
+      if (!input.unpublish) {
+        const [wa] = await db.select({ stepStatus: writeArticles.stepStatus, err: writeArticles.errorMsg })
+          .from(writeArticles).where(eq(writeArticles.articleId, input.draftId)).limit(1);
+        if (wa && wa.stepStatus !== 'done') {
+          const m = wa.err?.match(/(\d+)\s+section/) || [];
+          const n = m[1] ?? '?';
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: `[PLACEHOLDER_BLOCKED]: stepStatus='${wa.stepStatus}' (${n} sections placeholder). Edit content manually before publish.`,
+          });
+        }
+      }
+
       const targetStatus = input.unpublish ? 'draft' : 'published';
       await db.update(articles).set({ status: targetStatus, updatedAt: new Date() }).where(eq(articles.id, input.draftId));
       try {
@@ -668,6 +674,8 @@ export const writeRouter = router({
         id: articles.id, title: articles.title, status: articles.status, keywordId: articles.keywordId,
         updatedAt: articles.updatedAt, authorId: articles.authorId,
         wordCount: writeArticles.wordCount, eeatScore: writeArticles.eeatScore,
+        stepStatus: writeArticles.stepStatus, errorMsg: writeArticles.errorMsg,
+        citationsCount: writeArticles.citationsCount,
       }).from(articles).leftJoin(writeArticles, eq(writeArticles.articleId, articles.id)).where(and(...where)).orderBy(desc(articles.updatedAt)).limit(input.limit);
       return { ok: true, count: rows.length, items: rows };
     }),

@@ -267,13 +267,8 @@ export const projectsRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }): Promise<any> => {
-      try {
-        const caller = projectsRouter.createCaller(ctx as any);
-        const res: any = await (caller as any).get(input);
-        return res;
-      } catch {
-        return null;
-      }
+      const caller = projectsRouter.createCaller(ctx as any);
+      return (caller as any).get(input);
     }),
 
   getActive: protectedProcedure
@@ -281,7 +276,9 @@ export const projectsRouter = router({
     .query(async ({ ctx }) => {
       try {
         const allowedTeamIds = await userTeamIds(ctx);
-        if (allowedTeamIds.length === 0) return null;
+        if (allowedTeamIds.length === 0) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: '[WRITER-04] No team memberships. Cannot list active projects' });
+        }
         const rows = await db
           .select({ project: projects, categoryName: categories.name, categorySlug: categories.slug })
           .from(projects)
@@ -301,10 +298,11 @@ export const projectsRouter = router({
           coverKeyword: (rows[0].project as any).mainKeyword ?? '',
         };
       } catch (e: any) {
+        if (e instanceof TRPCError) throw e;
         if (IS_DEV) {
           console.warn('[projects.getActive] fallback.', e?.message ?? String(e).slice(0, 100));
         }
-        return null;
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: String(e?.message ?? e).slice(0, 200) });
       }
     }),
 

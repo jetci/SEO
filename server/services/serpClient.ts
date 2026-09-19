@@ -136,15 +136,14 @@ export class SerpService {
     if (needFetch.length) {
       let fetched = await this.fetchEnrichBatch(needFetch.map(n => n.kw), lang, country);
       // P0-3 SERP 401/403 FALLBACK 1 ROUND ENV KEY (SAFE)
-      // SAFETY GUARD: Fallback only when (1) ALL fetched error auth class, (2) ENV key non-empty and DIFFERENT from DB key, (3) teamId === DEFAULT_ADMIN_TEAM (90001) or DB key === ENV key (seeded, user never changed it = not cross-team)
-      const DEFAULT_ADMIN_TEAM = 90001;
+      // SAFETY GUARD: Fallback only when (1) ALL fetched error auth class, (2) ENV key non-empty and DIFFERENT from DB key, (3) teamId === ENV.DEFAULT_ADMIN_TEAM_ID or DB key === ENV key (seeded, user never changed it = not cross-team)
       const allAuthErr = fetched.length > 0 && fetched.every(r => {
         const m = String(r.error ?? '');
         return m.startsWith('HTTP 401') || m.startsWith('HTTP 403') || m.startsWith('[SERP_AUTH_INVALID') || m.startsWith('[SERP_AUTH_INVALID_');
       });
       const envKey = (ENV.SERP_API_KEY ?? '').trim();
       const dbKey = (this.settings.serpApiKey ?? '').trim();
-      const safeFallbackCond = allAuthErr && envKey && envKey !== dbKey && (Number(this.settings.teamId) === DEFAULT_ADMIN_TEAM || dbKey === (process.env.__SEED_SERP_API_KEY ?? ''));
+      const safeFallbackCond = allAuthErr && envKey && envKey !== dbKey && (Number(this.settings.teamId) === ENV.DEFAULT_ADMIN_TEAM_ID || dbKey === (process.env.__SEED_SERP_API_KEY ?? ''));
       if (safeFallbackCond) {
         const fallbackSettings = { ...this.settings, serpApiKey: envKey };
         try {

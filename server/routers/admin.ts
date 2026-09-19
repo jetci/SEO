@@ -5,12 +5,14 @@ import { z } from 'zod';
 import * as crypto from 'node:crypto';
 import { router } from '../_core/trpc.js';
 import { adminProcedure, TRPCError } from '../_core/middleware/rbac.js';
-import { eq, and, desc, gt, sql, sum, count, avg } from 'drizzle-orm';
+import { eq, and, desc, gt, sql, sum, count, avg, inArray } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import {
   users, teams, teamMembers, projects, categories, articles, writeArticles,
   settings, researchAudit, keywords,
 } from '../../db/schema.js';
+import { ENV } from '../_core/env.js';
+import { userTeamIds } from './_projectAccess.js';
 
 const ADMIN_PROCEDURES_AUDIT = 5;
 
@@ -19,12 +21,12 @@ function maskKey(plaintext: string, first4 = 4, last4 = 4): string {
   if (s.length <= first4 + last4 + 2) return s.slice(0, first4) + '*'.repeat(Math.max(2, s.length - first4));
   return s.slice(0, first4) + '*'.repeat(8) + s.slice(-last4);
 }
-function aesDecryptSettingsValue(encryptedBlob: string, sessionSecret: string): string | null {
+function aesDecryptSettingsValue(encryptedBlob: string, encryptionKey: string): string | null {
   try {
     const parts = String(encryptedBlob || '').split('.');
     if (parts.length < 3) return null;
     const [ivB64, tagB64, ctB64] = parts;
-    const key = crypto.createHash('sha256').update(String(sessionSecret || '')).digest();
+    const key = crypto.createHash('sha256').update(String(encryptionKey || '')).digest();
     const iv = Buffer.from(ivB64, 'base64url');
     const authTag = Buffer.from(tagB64, 'base64url');
     const ct = Buffer.from(ctB64, 'base64url');
@@ -36,11 +38,11 @@ function aesDecryptSettingsValue(encryptedBlob: string, sessionSecret: string): 
 }
 async function settingsMaskedRow(teamId: number, keyName: any, displayName: string, opts?: { isProvider?: boolean, pingSerp?: boolean }) {
   const [row] = await db.select({ value: settings.value }).from(settings).where(and(eq(settings.teamId, teamId), eq(settings.keyName as any, String(keyName)))).limit(1);
-  const sessionSecret = String(process.env.SESSION_SECRET || '');
+  const encryptionKey = String(ENV.ENCRYPTION_KEY || '');
   let plain: string | null = null;
   if (row?.value) {
     if (opts?.isProvider) { plain = row.value; }
-    else if (sessionSecret) { plain = aesDecryptSettingsValue(row.value, sessionSecret); }
+    else if (encryptionKey) { plain = aesDecryptSettingsValue(row.value, encryptionKey); }
   }
   if (!plain || !plain.length) return { provider: displayName, masked: '-', status: '⚠️ Not set', calls: '0 calls' };
   const masked = opts?.isProvider ? String(plain).slice(0, 64) : maskKey(plain);
@@ -149,10 +151,31 @@ export const adminRouter = router({
    * permission: admin ONLY
    */
   getSettingsMasked: adminProcedure.query(async ({ ctx }) => {
-    // WO-CORE-2569-003 RBAC-02: adminProcedure already enforced above;
-    // consistent fallback teamId resolver considers ctx.authMeta.role too (Phase 0 + Phase 1 coverage)
-    const isAdmin = (ctx.user?.role === 'admin') || ((ctx as any).authMeta?.role === 'admin');
-    const teamId = Number((ctx as any)?.teamId ?? (isAdmin ? 90001 : 0));
+    const openId = String(ctx.session?.openId ?? '').trim();
+    const isSystemAdmin = openId && openId === String(ENV.ADMIN_OPENID || '').trim();
+    let teamId = Number((ctx as any)?.teamId || 0);
+
+    if (!teamId || teamId <= 0) {
+      if (isSystemAdmin) {
+        teamId = Number(ENV.DEFAULT_ADMIN_TEAM_ID);
+      } else {
+        const myTeams = await userTeamIds(ctx);
+        if (myTeams.length === 0) throw new TRPCError({ code: 'FORBIDDEN', message: '[RBAC-03] No team memberships found for admin settings access.' });
+        const [userIdRow] = await db.select({ id: users.id }).from(users).where(eq(users.googleOpenId, openId)).limit(1);
+        const userId = userIdRow?.id;
+        if (!userId) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found for team permission resolution.' });
+        const perms = await db
+          .select({ teamId: teamMembers.teamId, permission: teamMembers.permission })
+          .from(teamMembers)
+          .where(and(eq(teamMembers.userId, userId), inArray(teamMembers.teamId, myTeams)));
+        const ownerTeam = perms.find(p => p.permission === 'owner');
+        const adminTeam = perms.find(p => p.permission === 'admin');
+        const chosen = ownerTeam || adminTeam;
+        if (!chosen) throw new TRPCError({ code: 'FORBIDDEN', message: '[RBAC-03] Admin Settings requires team owner or admin permission (member blocked).' });
+        teamId = Number(chosen.teamId);
+      }
+    }
+
     const [llmProv, llmKey, serpProv, serpKey] = await Promise.all([
       settingsMaskedRow(teamId, 'llm_provider', 'LLM Provider', { isProvider: true }),
       settingsMaskedRow(teamId, 'llm_api_key', 'OpenRouter LLM API Key'),

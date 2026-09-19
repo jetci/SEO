@@ -12,7 +12,7 @@ import {
   Sidebar, SidebarProvider, SidebarContent, SidebarGroup,
   SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset
 } from "@/components/ui/sidebar";
-import useAuth from "@/hooks/useAuth";
+import useAuth, { isUserAdminOrOwner } from "@/hooks/useAuth";
 import { useTheme } from "@/contexts/ThemeContext";
 
 type NavItem = {
@@ -22,6 +22,7 @@ type NavItem = {
   icon: ReactNode;
   badge?: string;
   locked?: boolean;
+  adminOnly?: boolean;
   group: "plan" | "system";
   core?: boolean; // true = มือใหม่เห็นเสมอ (Progressive Menu)
 };
@@ -36,10 +37,10 @@ const NAV_ITEMS: NavItem[] = [
   { key: "research", href: "/research",      label: "Keyword Research",   icon: <Search className="size-4" />,        badge: "NEW", locked: false, group: "plan", core: false },
 
   // Group "ระบบ" — มือใหม่เห็นแค่ตั้งค่า
-  { key: "settings", href: "/settings",      label: "ตั้งค่าระบบ",         icon: <Settings className="size-4" />,     locked: false, group: "system", core: true },
+  { key: "settings", href: "/settings",      label: "ตั้งค่าระบบ",         icon: <Settings className="size-4" />,     locked: false, group: "system", core: true, adminOnly: true },
   { key: "members",  href: "/members",       label: "จัดการสมาชิก",        icon: <Users className="size-4" />,        locked: true, group: "system", core: false },
   { key: "teams",    href: "/teams",         label: "จัดการทีม",           icon: <ShieldCheck className="size-4" />,  locked: true, group: "system", core: false },
-  { key: "audit",    href: "/audit",         label: "Admin Audit (Phase 3)", icon: <BarChart3 className="size-4" />, badge: "NEW", group: "system", core: false },
+  { key: "audit",    href: "/audit",         label: "Admin Audit (Phase 3)", icon: <BarChart3 className="size-4" />, badge: "NEW", group: "system", core: false, adminOnly: true },
 ];
 
 type Props = {
@@ -73,28 +74,10 @@ export default function MainDashboardShell({
     return "overview";
   })();
 
-  // ======================================================================
-  // PHASE 2I BUGFIX #3: Redirect guard CONFIRMED UNAUTHORIZED ONLY
-  // Old buggy logic: if (!isLoggedIn) start timer → race timer fired during
-  // menu click = new page useAuth() instance mounting isLoggedIn=false (fetch
-  // in progress) → timer 800ms fired before fetch returned user → /login.
-  // NEW safe logic (3-layer guard):
-  //   A) !loading = fetch complete (not race window)
-  //   B) !isLoggedIn explicitly false after resolution
-  //   C) server returned EXPLICIT UNAUTHORIZED/FORBIDDEN code = REAL session
-  //      dead (not mount race, not network transient, not 404/500)
-  // Result: Session valid = redirect NEVER fires on menu click / route change.
-  //         Session actually dead = redirect in 500ms.
-  // ======================================================================
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const serverRejected =
-      me.error?.data?.code === "UNAUTHORIZED" ||
-      me.error?.data?.code === "FORBIDDEN";
-    if (!loading && !isLoggedIn && serverRejected) {
-      const t = setTimeout(() => { window.location.href = "/login"; }, 500);
-      return () => clearTimeout(t);
-    }
+    // Redirect decision deferred EXCLUSIVELY to RequireAuth wrapper + auth.me useEffect.
+    // No setTimeout guess-time redirect here (UX-01 removed old 500ms guess timer).
   }, [loading, isLoggedIn, me.error?.data?.code]);
 
   const initials = (() => {
@@ -125,7 +108,7 @@ export default function MainDashboardShell({
             <SidebarGroup>
               <SidebarGroupLabel className="text-[11px] uppercase tracking-wider text-stone-500 px-3 py-1">วางแผนและเขียนบทความ</SidebarGroupLabel>
               <SidebarMenu className="gap-1" data-testid="sidebar-group-plan">
-                {NAV_ITEMS.filter(i => i.group === "plan" && (i.core || activeKey === i.key || showAdvancedMenus)).map(item => (
+                {NAV_ITEMS.filter(i => i.group === "plan" && (i.core || activeKey === i.key || showAdvancedMenus) && (!i.adminOnly || isUserAdminOrOwner(user))).map(item => (
                   <SidebarMenuItem key={item.key} data-testid={`sidebar-menuitem-${item.key}`}>
                     <SidebarMenuButton
                       asChild
@@ -148,7 +131,7 @@ export default function MainDashboardShell({
             <SidebarGroup>
               <SidebarGroupLabel className="text-[11px] uppercase tracking-wider text-stone-500 px-3 py-1">ระบบ</SidebarGroupLabel>
               <SidebarMenu className="gap-1" data-testid="sidebar-group-system">
-                {NAV_ITEMS.filter(i => i.group === "system" && (i.core || activeKey === i.key || showAdvancedMenus)).map(item => (
+                {NAV_ITEMS.filter(i => i.group === "system" && (i.core || activeKey === i.key || showAdvancedMenus) && (!i.adminOnly || isUserAdminOrOwner(user))).map(item => (
                   <SidebarMenuItem key={item.key} data-testid={`sidebar-menuitem-${item.key}`}>
                     <SidebarMenuButton
                       asChild

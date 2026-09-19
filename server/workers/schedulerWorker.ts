@@ -6,7 +6,6 @@ import { appRouter } from '../app.js';
 import { VERCEL, ENV } from '../_core/env.js';
 
 const SYSTEM_ADMIN_ID = 99001;
-const SYSTEM_TEAM_ID = 90001;
 
 type CronTask = ReturnType<typeof cron.schedule>;
 let cronTask: CronTask | null = null;
@@ -33,7 +32,7 @@ async function buildSystemCallerForTeam(teamId: number | null | undefined) {
   let ownerOpenId = String(ENV.ADMIN_OPENID || 'intelman26@gmail.com').trim();
   let ownerUserId = SYSTEM_ADMIN_ID;
   let ownerEmail = 'scheduler@eeat.local';
-  let resolvedTeamId = Number(teamId ?? SYSTEM_TEAM_ID);
+  let resolvedTeamId = Number(teamId ?? ENV.DEFAULT_ADMIN_TEAM_ID);
 
   try {
     if (teamId && Number(teamId) > 0) {

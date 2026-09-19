@@ -12,20 +12,9 @@ import { assertProjectAccess } from './_projectAccess.js';
 import { SerpService } from '../services/serpClient.js';
 import { LlmService } from '../services/llmClient.js';
 import * as crypto from 'node:crypto';
+import { getInsertId } from '../_core/utils/insertId.js';
 
 function newTraceId(): string { return crypto.randomUUID(); }
-function extractInsertId(res: any): number {
-  if (Array.isArray(res)) {
-    if (res.length > 0 && typeof res[0]?.insertId === 'number') return Number(res[0].insertId);
-    if (typeof (res as any).insertId === 'number') return Number((res as any).insertId);
-    const first = (res as any)[0];
-    if (first && typeof first === 'object') {
-      if (typeof (first as any).insertId === 'number') return Number((first as any).insertId);
-      if (Array.isArray(first) && typeof first[0]?.insertId === 'number') return Number(first[0].insertId);
-    }
-  } else if (res && typeof (res as any).insertId === 'number') return Number((res as any).insertId);
-  return 0;
-}
 
 const THIRTY_DAYS_MS = 30 * 24 * 3600 * 1000;
 
@@ -242,7 +231,11 @@ export const researchRouter = router({
         const ins = await db.insert(researchPackages)
           .values({ keywordId: input.keywordId, projectId: Number(kw.projectId), packageJson: json, fromCache: 0, durationMs })
           .onDuplicateKeyUpdate({ set: { packageJson: json, fromCache: 0, durationMs, lastUpdatedAt: new Date() } });
-        researchPackageId = extractInsertId(ins);
+        try {
+          researchPackageId = getInsertId(ins);
+        } catch (_errGetId) {
+          researchPackageId = undefined;
+        }
       } catch (e: any) {
         console.warn('[research.runPlanForKeyword] persist pkg failed:', String(e?.message ?? e).slice(0,160));
       }

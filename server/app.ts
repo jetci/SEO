@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { eq, and, lte, gte, sql } from 'drizzle-orm';
 
-import { ENV, IS_PROD, ENV_PARSE_ERRORS, VERCEL } from './_core/env.js';
+import { ENV, IS_PROD, ENV_PARSE_ERRORS, VERCEL, IS_DEV } from './_core/env.js';
 import { router, createContext } from './_core/trpc.js';
 import { db } from '../db/index.js';
 import { articles, writeArticles } from '../db/schema.js';
@@ -24,6 +24,7 @@ import { keywordsRouter } from './routers/keywords.js';
 import { researchRouter } from './routers/research.js';
 import { writeRouter } from './routers/write.js';
 import { adminRouter } from './routers/admin.js';
+import { scheduledPublishTick } from './workers/schedulerWorker.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -112,6 +113,21 @@ export function createApp() {
   app.use('/api/auth', authExpressRouter);
   app.use('/api/oauth', authExpressRouter);
 
+  // SCHED-02 · Vercel Cron HTTP Ping Endpoint (fire-forget, no await)
+  // Called by: Vercel Cron Jobs (prod: 1min) or VPS custom curl healthcheck (dev)
+  // Header gate: x-vercel-cron-secret === ENV.CRON_SECRET | (IS_DEV && secret empty bypass)
+  app.get('/api/cron/scheduled-publish', (_req, _res) => {
+    const secret = String(_req.headers['x-vercel-cron-secret'] ?? _req.headers['x-cron-secret'] ?? '');
+    const envSecret = String(ENV.CRON_SECRET ?? '');
+    const allowed = (envSecret && secret === envSecret) || (IS_DEV && !envSecret);
+    if (!allowed) {
+      _res.status(401).json({ ok: false, error: 'Invalid cron secret', code: 'CRON_UNAUTHORIZED' });
+      return;
+    }
+    void (async () => { try { await scheduledPublishTick(); } catch (e: any) { console.error('[CRON] scheduledPublishTick fireForget error:', String(e?.message ?? e).slice(0, 300)); } })();
+    _res.status(200).json({ ok: true, cron: 'dispatched' });
+  });
+
   // ===== API 404 GUARD (MUST BE BEFORE STATIC / SPA ROUTES) =====
   // Any /api/* request not matched by tRPC/auth above → explicit 404 JSON.
   // NEVER fall through to static/SPA for /api/* — this is the HARD GUARD against "404 HTML SPA fallback".
@@ -183,70 +199,6 @@ export function createApp() {
       error: { message: 'Method not allowed for non-API path', code: 'METHOD_NOT_ALLOWED', httpStatus: 405, method: _req.method, path: _req.path },
     });
   });
-
-  // ===== Phase 3 · Scheduler Publish (NO ALTER TABLE FOREVER — reuse existing cols only) =====
-  // Reuses: articles.status(draft/published), articles.updatedAt, writeArticles.writeStep,
-  //          writeArticles.stepStatus, writeArticles.error_msg(VARCHAR 512).
-  // Publish eligible rows: draft + writeStep>=8 (pipeline done) + stepStatus=done + updatedAt>=30min buffer.
-  if (IS_PROD && !VERCEL) {
-    const SCHED_INTERVAL_MS = 60_000;
-    const PUBLISH_BUFFER_MIN = 30;
-    const MAX_LOOKBACK_DAYS = 7;
-    const SYSTEM_ADMIN_ID = 99001;
-
-    const schedTick = async () => {
-      try {
-        const sinceBuf = new Date(Date.now() - PUBLISH_BUFFER_MIN * 60_000);
-        const sinceMin = new Date(Date.now() - MAX_LOOKBACK_DAYS * 24 * 60 * 60_000);
-        const rows = await db
-          .select({
-            articleId: articles.id,
-            projectId: articles.projectId,
-            writeId: writeArticles.id,
-          })
-          .from(articles)
-          .innerJoin(writeArticles, eq(writeArticles.articleId, articles.id))
-          .where(and(
-            eq(articles.status, 'draft'),
-            gte(writeArticles.writeStep, 8),
-            eq(writeArticles.stepStatus, 'done'),
-            lte(articles.updatedAt, sinceBuf),
-            gte(articles.updatedAt, sinceMin),
-          ))
-          .limit(25);
-        if (rows.length === 0) return;
-        const caller = (appRouter as any).createCaller({
-          user: { id: SYSTEM_ADMIN_ID, role: 'admin', teamId: 90001, email: 'scheduler@eeat.local' },
-          req: undefined,
-          res: undefined,
-          session: undefined,
-        });
-        for (const r of rows) {
-          try {
-            await caller.write.publish({ draftId: Number(r.articleId) });
-            console.log(`[SCHED PUB] OK article=${r.articleId} project=${r.projectId}`);
-          } catch (err: any) {
-            const msg = String(err?.message || err).slice(0, 511);
-            try {
-              await db.update(writeArticles).set({
-                errorMsg: `[SCHED_FAIL] ${msg}`,
-                updatedAt: new Date(),
-              }).where(eq(writeArticles.id, Number(r.writeId)));
-            } catch { /* ignore */ }
-            console.error(`[SCHED PUB] FAIL article=${r.articleId}:`, msg.slice(0, 160));
-          }
-        }
-      } catch (e: any) {
-        console.error('[SCHED PUB] tick ERROR:', String(e?.message || e).slice(0, 512));
-      }
-    };
-
-    setTimeout(schedTick, 5_000);
-    const iid = setInterval(schedTick, SCHED_INTERVAL_MS);
-    process.once('SIGTERM', () => clearInterval(iid));
-    process.once('SIGINT', () => clearInterval(iid));
-    console.log(`[V2] Scheduler Publish started (interval=${SCHED_INTERVAL_MS}ms, buffer=${PUBLISH_BUFFER_MIN}min, lookback=${MAX_LOOKBACK_DAYS}d)`);
-  }
 
   return { app, appRouter };
 }

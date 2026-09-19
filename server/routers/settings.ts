@@ -18,9 +18,9 @@ type SerpProvider = typeof SERP_PROVIDERS_SETTINGS[number];
 
 // ── AES-256-GCM Encryption Helpers ──────────────────────────────
 function getEncryptionKey(): Buffer {
-  const secret = ENV.SESSION_SECRET;
+  const secret = ENV.ENCRYPTION_KEY;
   if (!secret || secret.length < 32) {
-    throw new Error('[SETTINGS] SESSION_SECRET must be ≥ 32 chars for AES-256-GCM encryption.');
+    throw new Error('[SETTINGS] ENCRYPTION_KEY must be ≥ 32 chars for AES-256-GCM encryption.');
   }
   return crypto.createHash('sha256').update(secret).digest();
 }
@@ -136,7 +136,7 @@ async function loadSettingsForTeam(teamId: number) {
   }
   if (badKeys.length) {
     for (const k of badKeys) map.delete(k);
-    console.warn('[SETTINGS][BAD-DECRYPT] teamId=%s keys=%O SESSION_SECRET changed or corrupt data — DB rows kept for overwrite on next save (SET-05)', teamId, badKeys);
+    console.warn('[SETTINGS][BAD-DECRYPT] teamId=%s keys=%O ENCRYPTION_KEY changed or corrupt data — DB rows kept for overwrite on next save (SET-05)', teamId, badKeys);
   }
 
   // Seed ENV defaults for missing settings on first call
@@ -431,6 +431,9 @@ export const settingsRouter = router({
       const deletes = (input.keyType === 'llm'
         ? ['llm_api_key']
         : ['serp_api_key']) as Array<'llm_api_key'|'serp_api_key'|'billing_limit_usd'>;
+      // USER-INITIATED DELETE ONLY (keys user unchecked from UI resetKey)
+      // NEVER use this delete path for decrypt failures — those use ONLY map.delete() in memory (see loadSettingsForTeam L137-140).
+      console.warn('[SETTINGS-USER-DELETE] teamId=%s keys=%s count=%s', String(teamId), deletes.join(','), String(deletes.length));
       await db.delete(settingsTable).where(and(eq(settingsTable.teamId, teamId), inArray(settingsTable.keyName, deletes)));
       return { ok: true, deleted: deletes, teamId };
     }),
