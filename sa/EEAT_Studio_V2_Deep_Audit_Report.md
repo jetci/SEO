@@ -20,7 +20,7 @@
 
 ## RBAC Core (กระทบทุกบทบาท)
 
-### RBAC-01 — ctx.user ไม่เคยถูก hydrate → RBAC ทั้งระบบพังเงียบ
+### ✅ [CLOSED] RBAC-01 — ctx.user ไม่เคยถูก hydrate → RBAC ทั้งระบบพังเงียบ
 
 - **ความร้ายแรง:** 🔴 วิกฤต
 - **ปัญหาที่ตรวจพบ:**
@@ -33,7 +33,7 @@
   - เพิ่ม integration test ที่ไม่ mock ctx.user เพื่อพิสูจน์ว่า role จาก DB ถูกใช้จริง
 - **เอกสารจัดเก็บที่:** `server/_core/trpc.ts (L77 user:null); server/_core/middleware/rbac.ts (resolveRole)`
 
-### RBAC-02 — admin router import adminProcedure แต่ไม่ได้ใช้ — ใช้ inline check ที่ผิด
+### ✅ [CLOSED] RBAC-02 — admin router import adminProcedure แต่ไม่ได้ใช้ — ใช้ inline check ที่ผิด
 
 - **ความร้ายแรง:** 🔴 วิกฤต
 - **ปัญหาที่ตรวจพบ:**
@@ -45,7 +45,7 @@
   - ลบโค้ด dead L76-78
 - **เอกสารจัดเก็บที่:** `server/routers/admin.ts (L75-L203)`
 
-### RBAC-03 — teamId hardcode = 90001 ในการอ่าน settings ของ admin
+### ✅ [CLOSED] RBAC-03 — teamId hardcode = 90001 ในการอ่าน settings ของ admin
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
@@ -61,7 +61,7 @@
 
 ## Guest (ยังไม่ล็อกอิน)
 
-### GUEST-01 — ไม่มี Route Guard ฝั่ง client — ทุกหน้าเข้าถึง URL ได้โดยตรง
+### ✅ [CLOSED] GUEST-01 — ไม่มี Route Guard ฝั่ง client — ทุกหน้าเข้าถึง URL ได้โดยตรง
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
@@ -86,7 +86,7 @@
 
 ## Writer (ผู้เขียนบทความ)
 
-### WRITER-01 — dev-fallback mock อาจรั่วสู่ production — คืนข้อมูลปลอมแทน error
+### ✅ [CLOSED] WRITER-01 — dev-fallback mock อาจรั่วสู่ production — คืนข้อมูลปลอมแทน error
 
 - **ความร้ายแรง:** 🔴 วิกฤต
 - **ปัญหาที่ตรวจพบ:**
@@ -100,7 +100,7 @@
   - ลบ mock ที่ return ownerId=1 / insertId=Date.now()
 - **เอกสารจัดเก็บที่:** `server/routers/projects.ts, teams.ts (catch block เช็ค NODE_ENV)`
 
-### WRITER-02 — insertId ดึงมาไม่แน่นอน มี fallback = Date.now()
+### ✅ [CLOSED] WRITER-02 — insertId ดึงมาไม่แน่นอน มี fallback = Date.now()
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
@@ -111,7 +111,7 @@
   - ใช้ .$returningId() ของ drizzle หรือ LAST_INSERT_ID() ในทรานแซกชันเดียว
 - **เอกสารจัดเก็บที่:** `teams.ts, projects.ts, write.ts, research.ts`
 
-### WRITER-03 — Article Writer สร้าง PLACEHOLDER เมื่อ LLM ล้ม แต่ยังนับเป็น draft ปกติ
+### ✅ [CLOSED] WRITER-03 — Article Writer สร้าง PLACEHOLDER เมื่อ LLM ล้ม แต่ยังนับเป็น draft ปกติ
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
@@ -135,7 +135,7 @@
 
 ## Admin
 
-### ADMIN-01 — backdoor: devSignin ทำงานได้ใน production ผ่าน password 'test1234'
+### ✅ [CLOSED] ADMIN-01 — backdoor: devSignin ทำงานได้ใน production ผ่าน password 'test1234'
 
 - **ความร้ายแรง:** 🔴 วิกฤต
 - **ปัญหาที่ตรวจพบ:**
@@ -149,7 +149,7 @@
   - ย้าย ADMIN_OPENID/ADMIN_EMAIL ออกจาก default ในโค้ด ไปเป็น ENV บังคับ
 - **เอกสารจัดเก็บที่:** `server/auth.ts (devSignin mutation)`
 
-### ADMIN-02 — AdminAuditPage ไม่มี guard ฝั่ง client เลย (ไม่ใช้ useAuth)
+### ✅ [CLOSED] ADMIN-02 — AdminAuditPage ไม่มี guard ฝั่ง client เลย (ไม่ใช้ useAuth)
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
@@ -186,7 +186,7 @@
 
 ## System / Scheduler
 
-### SCHED-01 — Scheduler auto-publish พังทุกครั้ง — เรียก protectedProcedure ด้วย session=undefined
+### ✅ [CLOSED] SCHED-01 — Scheduler auto-publish พังทุกครั้ง — เรียก protectedProcedure ด้วย session=undefined
 
 - **ความร้ายแรง:** 🔴 วิกฤต
 - **ปัญหาที่ตรวจพบ:**
@@ -200,7 +200,7 @@
   - เพิ่ม integration test จำลอง scheduler tick
 - **เอกสารจัดเก็บที่:** `server/workers/schedulerWorker.ts (L74); server/app.ts (L219); server/routers/write.ts (publish)`
 
-### SCHED-02 — Scheduler ทำงานเฉพาะ IS_PROD && !VERCEL — บน Vercel serverless ไม่มี cron
+### ✅ [CLOSED] SCHED-02 — Scheduler ทำงานเฉพาะ IS_PROD && !VERCEL — บน Vercel serverless ไม่มี cron
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
@@ -226,7 +226,7 @@
   - รัน drizzle-kit generate เทียบ DB จริง ตรวจ drift
 - **เอกสารจัดเก็บที่:** `db/schema.ts`
 
-### DB-02 — articles.content เป็น text แต่คาดหวัง LONGTEXT — เสี่ยงเนื้อหายาวถูกตัด
+### ✅ [CLOSED] DB-02 — articles.content เป็น text แต่คาดหวัง LONGTEXT — เสี่ยงเนื้อหายาวถูกตัด
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
@@ -322,7 +322,7 @@
   - เพิ่ม *.log, .cache_*, deploy_tmp/, .vercel/, debug_*, _tmp_* เข้า .gitignore แล้วลบออกจาก repo
 - **เอกสารจัดเก็บที่:** `backend.log, vite*.log, .cache_vps_builder_now.ts (80KB), db/debug_*.ts, debug_*.mjs, deploy_tmp/, .vercel/`
 
-### DEBT-02 — debug logging ระดับ verbose ค้างใน production path
+### ✅ [CLOSED] DEBT-02 — debug logging ระดับ verbose ค้างใน production path
 
 - **ความร้ายแรง:** 🟠 สูง
 - **ปัญหาที่ตรวจพบ:**
