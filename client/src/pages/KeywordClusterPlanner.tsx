@@ -241,8 +241,13 @@ export default function KeywordClusterPlanner() {
     toggleRun(kwId, true);
     const t = toast.loading(`📝 สร้าง Draft: ${c.keyword.slice(0, 45)}...`);
     try {
-      const res: any = await createDraft.mutateAsync({ keywordId: kwId });
-      const draftId = Number(res?.id ?? res?.insertId ?? 0);
+      const res: any = await createDraft.mutateAsync({ keywordId: kwId, force: true });
+      const draftId = Number(res?.draft_id ?? res?.draftId ?? res?.id ?? res?.insertId ?? 0);
+      if (!draftId) {
+        toast.error(`สร้างสำเร็จแต่ server ไม่ได้ส่ง draft_id กลับมา. ติดต่อทีมพัฒนา`, { id: t });
+        toggleRun(kwId, false);
+        return;
+      }
       toast.success(`✅ สร้าง Draft #${draftId} เสร็จสิ้น → กำลังเปิดหน้าเขียน...`, { id: t });
       setTimeout(() => setLocation(`/write?kw_id=${kwId}&draft_id=${draftId}`), 600);
     } catch (e: any) { toast.error(`❌ สร้าง Draft ล้มเหลว: ${String(e?.message ?? e).slice(0, 120)}`, { id: t }); toggleRun(kwId, false); }
